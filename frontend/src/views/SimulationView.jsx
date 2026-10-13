@@ -65,9 +65,9 @@ export default function SimulationView() {
               <div key={p.key}>
                 <div className="flex items-baseline justify-between">
                   <label htmlFor={p.key} className="text-xs font-medium">{p.label}</label>
-                  <span className="font-mono text-xs tabular-nums text-teal-500">{fmt(params[p.key])} {p.unit}</span>
+                  <span className="font-mono text-xs tabular-nums text-accent">{fmt(params[p.key])} {p.unit}</span>
                 </div>
-                <input id={p.key} type="range" className="w-full accent-teal-500"
+                <input id={p.key} type="range" className="w-full accent-accent"
                   min={toSlider(p.min)} max={toSlider(p.max)} step={logScale ? 0.01 : p.step}
                   value={toSlider(params[p.key] ?? p.default)}
                   onChange={(e) => setParams((s) => ({ ...s, [p.key]: Math.min(p.max, Math.max(p.min, fromSlider(e.target.value))) }))} />
@@ -81,7 +81,7 @@ export default function SimulationView() {
             {!result ? <Skeleton className="h-80" /> : (
               <>
                 <p className="section-title mb-1">{result.name}</p>
-                <p className="mb-3 text-xs text-slate-500">{result.y_label} vs {result.x_label}</p>
+                <p className="mb-3 text-xs text-muted">{result.y_label} vs {result.x_label}</p>
                 <div className="h-80">
                   <ResponsiveContainer>
                     <LineChart data={rows} margin={{ top: 8, right: 16, bottom: 16, left: 0 }}>
@@ -110,7 +110,7 @@ export default function SimulationView() {
                 <dl className="grid grid-cols-2 gap-3">
                   {Object.entries(result.metrics).map(([k, v]) => (
                     <div key={k} className="panel-muted p-2.5">
-                      <dt className="text-[11px] uppercase tracking-wide text-slate-500">{k.replace(/_/g, " ")}</dt>
+                      <dt className="text-[11px] uppercase tracking-wide text-muted">{k.replace(/_/g, " ")}</dt>
                       <dd className="text-base font-semibold tabular-nums">{fmt(v)}</dd>
                     </div>
                   ))}
@@ -119,7 +119,7 @@ export default function SimulationView() {
               <div className="panel space-y-3 p-5 text-sm">
                 <p className="section-title">Model assumptions</p>
                 <ul className="list-disc space-y-1 pl-5 text-xs">{result.assumptions.map((a) => <li key={a}>{a}</li>)}</ul>
-                {result.warnings.map((w) => <p key={w} className="flex gap-1.5 text-xs text-amber-600"><AlertTriangle className="h-3.5 w-3.5 shrink-0" />{w}</p>)}
+                {result.warnings.map((w) => <p key={w} className="flex gap-1.5 text-xs text-warning-ink"><AlertTriangle className="h-3.5 w-3.5 shrink-0" />{w}</p>)}
                 <Badge tone="amber"><Info className="h-3 w-3" /> {result.disclaimer}</Badge>
               </div>
             </div>

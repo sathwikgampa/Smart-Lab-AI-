@@ -5,9 +5,12 @@ import EvidencePanel from "./components/EvidencePanel";
 import { Drawer, Page, SkeletonRows } from "./components/ui";
 import { navigate, useRoute } from "./lib/router";
 
+// Overview (home) and Ask share one component instance so a question asked on the home page
+// continues in place when the URL changes to its thread.
+const AskView = lazy(() => import("./views/AskView"));
 const VIEWS = {
-  overview: lazy(() => import("./views/AskView")),
-  ask: lazy(() => import("./views/AskView")),
+  overview: AskView,
+  ask: AskView,
   documents: lazy(() => import("./views/DocumentsView")),
   reagents: lazy(() => import("./views/ReagentsView")),
   literature: lazy(() => import("./views/LiteratureView")),
@@ -20,6 +23,7 @@ const VIEWS = {
   data: lazy(() => import("./views/DataView")),
   collaboration: lazy(() => import("./views/CollaborationView")),
   simulation: lazy(() => import("./views/SimulationView")),
+  training: lazy(() => import("./views/LabTourView")),
 };
 
 function useIsWide() {
@@ -41,9 +45,7 @@ function Shell() {
   const id = VIEWS[route.path[0]] ? route.path[0] : null;
 
   useEffect(() => {
-    if (!route.path.length || route.path[0] === "overview") {
-      navigate("ask", { replace: true });
-    }
+    if (!route.path.length) navigate("overview", { replace: true });
   }, [route.path]);
   // A source belongs to the page/conversation it was opened from; close it when that changes.
   const routeKey = route.path.join("/");
@@ -51,7 +53,7 @@ function Shell() {
   useEffect(() => {
     const prev = lastKey.current;
     lastKey.current = routeKey;
-    const sameAskThread = prev === "ask" && routeKey.startsWith("ask/"); // new conversation just got its id
+    const sameAskThread = (prev === "ask" || prev === "overview") && routeKey.startsWith("ask/"); // new conversation just got its id
     const sameDocuments = prev.startsWith("documents") && routeKey.startsWith("documents");
     if (prev !== routeKey && !sameAskThread && !sameDocuments) closeEvidence();
   }, [routeKey, closeEvidence]);
@@ -64,10 +66,10 @@ function Shell() {
   ) : null;
 
   return (
-    <AppShell current={id} title={label} aside={aside}>
+    <AppShell current={id} route={route} title={label} aside={aside}>
       <Suspense fallback={<Page><SkeletonRows rows={6} /></Page>}>
         {View ? <View route={route} /> : (
-          <Page><h1 className="text-lg font-semibold">Page not found</h1><p className="mt-1 text-muted">This address does not match any page. <a className="link" href="#/ask">Go to Ask SmartLab</a></p></Page>
+          <Page><h1 className="text-lg font-semibold">Page not found</h1><p className="mt-1 text-muted">This address does not match any page. <a className="link" href="#/overview">Go to Overview</a></p></Page>
         )}
       </Suspense>
       {evidence && !wide && (

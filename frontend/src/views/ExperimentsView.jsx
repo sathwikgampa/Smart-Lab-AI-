@@ -11,8 +11,8 @@ const CHECKPOINTS = ["Protocol approval", "Safety review", "Data review", "Final
 
 function ProgressBar({ value }) {
   return (
-    <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-200">
-      <div className="h-full rounded-full bg-gradient-to-r from-teal-500 to-sky-500 transition-all" style={{ width: `${value}%` }} />
+    <div className="h-1.5 w-full overflow-hidden rounded-full bg-subtle">
+      <div className="h-full rounded-full bg-gradient-to-r from-accent to-accent-strong transition-all" style={{ width: `${value}%` }} />
     </div>
   );
 }
@@ -60,15 +60,15 @@ function ExperimentDetail({ id, onChanged }) {
             {["draft", "in_progress", "in_review", "completed", "archived"].map((s) => <option key={s} value={s}>{s.replace("_", " ")}</option>)}
           </select>
         </div>
-        <p className="mt-1 text-sm text-slate-500">{e.objective}</p>
-        <p className="mt-1 text-xs text-slate-500">{e.project_name} · Owner: {e.owner_name || "-"}</p>
+        <p className="mt-1 text-sm text-muted">{e.objective}</p>
+        <p className="mt-1 text-xs text-muted">{e.project_name} · Owner: {e.owner_name || "-"}</p>
         <div className="mt-3 flex items-center gap-3"><ProgressBar value={e.progress} /><span className="text-xs tabular-nums">{e.progress}%</span></div>
       </div>
 
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
         <div className="panel p-5">
           <div className="mb-3 flex items-center justify-between">
-            <p className="section-title flex items-center gap-2"><Pencil className="h-4 w-4 text-teal-500" /> Protocol</p>
+            <p className="section-title flex items-center gap-2"><Pencil className="h-4 w-4 text-accent" /> Protocol</p>
             {editing ? (
               <button className="btn-primary py-1 text-xs" onClick={async () => { await act(() => api.updateExperiment(e.id, { protocol_markdown: draft }), "Protocol saved."); setEditing(false); }}>
                 <Save className="h-3.5 w-3.5" /> Save
@@ -81,21 +81,21 @@ function ExperimentDetail({ id, onChanged }) {
               <div className="panel-muted overflow-auto p-3"><p className="label flex items-center gap-1"><Eye className="h-3 w-3" /> Preview</p><Markdown>{draft}</Markdown></div>
             </div>
           ) : <Markdown>{e.protocol_markdown || "_No protocol drafted yet._"}</Markdown>}
-          <p className="mt-2 text-[11px] text-slate-500">Markdown and LaTeX ($...$) supported.</p>
+          <p className="mt-2 text-[11px] text-muted">Markdown and LaTeX ($...$) supported.</p>
         </div>
 
         <div className="panel p-5">
-          <p className="section-title mb-3 flex items-center gap-2"><ListChecks className="h-4 w-4 text-sky-500" /> Checklist</p>
+          <p className="section-title mb-3 flex items-center gap-2"><ListChecks className="h-4 w-4 text-accent" /> Checklist</p>
           <ul className="space-y-1">
             {e.steps.map((s, idx) => (
-              <li key={s.id} className="group flex items-center gap-2 rounded-lg px-2 py-1.5 hover:bg-slate-50">
-                <input type="checkbox" className="h-4 w-4 accent-teal-500" checked={s.done}
+              <li key={s.id} className="group flex items-center gap-2 rounded-lg px-2 py-1.5 hover:bg-canvas">
+                <input type="checkbox" className="h-4 w-4 accent-accent" checked={s.done}
                   onChange={() => act(() => api.updateStep(e.id, s.id, { done: !s.done }))} />
-                <span className={`flex-1 text-sm ${s.done ? "text-slate-400 line-through" : ""}`}>{s.text}</span>
+                <span className={`flex-1 text-sm ${s.done ? "text-faint line-through" : ""}`}>{s.text}</span>
                 <div className="flex opacity-0 transition group-hover:opacity-100">
                   <button className="btn-ghost p-1" onClick={() => move(idx, -1)} aria-label="Move up"><ArrowUp className="h-3 w-3" /></button>
                   <button className="btn-ghost p-1" onClick={() => move(idx, 1)} aria-label="Move down"><ArrowDown className="h-3 w-3" /></button>
-                  <button className="btn-ghost p-1" onClick={() => act(() => api.deleteStep(e.id, s.id))} aria-label="Delete step"><Trash2 className="h-3 w-3 text-rose-500" /></button>
+                  <button className="btn-ghost p-1" onClick={() => act(() => api.deleteStep(e.id, s.id))} aria-label="Delete step"><Trash2 className="h-3 w-3 text-critical" /></button>
                 </div>
               </li>
             ))}
@@ -107,13 +107,13 @@ function ExperimentDetail({ id, onChanged }) {
         </div>
 
         <div className="panel p-5">
-          <p className="section-title mb-3 flex items-center gap-2"><Variable className="h-4 w-4 text-violet-500" /> Variable log</p>
+          <p className="section-title mb-3 flex items-center gap-2"><Variable className="h-4 w-4 text-accent" /> Variable log</p>
           <table className="w-full">
             <thead><tr><th className="table-head">Variable</th><th className="table-head">Value</th><th className="table-head">Type</th><th className="table-head">Logged</th></tr></thead>
-            <tbody className="divide-y divide-slate-200">
+            <tbody className="divide-y divide-line">
               {e.variables.map((v) => (
                 <tr key={v.id}><td className="table-cell font-medium">{v.name}</td><td className="table-cell tabular-nums">{v.value} {v.unit}</td>
-                  <td className="table-cell text-xs capitalize">{v.kind}</td><td className="table-cell text-xs text-slate-500">{v.logged_at}</td></tr>
+                  <td className="table-cell text-xs capitalize">{v.kind}</td><td className="table-cell text-xs text-muted">{v.logged_at}</td></tr>
               ))}
             </tbody>
           </table>
@@ -133,14 +133,14 @@ function ExperimentDetail({ id, onChanged }) {
         </div>
 
         <div className="panel p-5">
-          <p className="section-title mb-3 flex items-center gap-2"><ClipboardCheck className="h-4 w-4 text-amber-500" /> Expert review checkpoints</p>
+          <p className="section-title mb-3 flex items-center gap-2"><ClipboardCheck className="h-4 w-4 text-warning-ink" /> Expert review checkpoints</p>
           <ol className="space-y-2">
             {e.reviews.map((r) => (
               <li key={r.id} className="panel-muted p-3">
                 <div className="flex items-center gap-2">
                   <p className="flex-1 text-sm font-medium">{r.checkpoint}</p><StatusBadge status={r.status} />
                 </div>
-                <p className="text-xs text-slate-500">Reviewer: {r.reviewer_name || "Unassigned"}{r.decided_at ? ` · ${r.decided_at}` : ""}</p>
+                <p className="text-xs text-muted">Reviewer: {r.reviewer_name || "Unassigned"}{r.decided_at ? ` · ${r.decided_at}` : ""}</p>
                 {r.notes && <p className="mt-1 text-xs italic">"{r.notes}"</p>}
                 {r.status === "pending" && (
                   <div className="mt-2 flex flex-wrap gap-2">
@@ -228,9 +228,9 @@ export default function ExperimentsView() {
           {list.loading ? <SkeletonRows rows={3} /> : list.data?.length === 0 ? <EmptyState icon={FlaskConical} title="No experiments" /> :
             list.data.map((x) => (
               <button key={x.id} onClick={() => setSelected(x.id)}
-                className={`panel w-full p-3 text-left transition ${selected === x.id ? "ring-2 ring-teal-500/60" : "hover:border-teal-500/40"}`}>
+                className={`panel w-full p-3 text-left transition ${selected === x.id ? "ring-2 ring-accent/60" : "hover:border-accent/40"}`}>
                 <div className="flex items-start justify-between gap-2"><p className="text-sm font-medium">{x.title}</p><StatusBadge status={x.status} /></div>
-                <p className="mt-1 text-xs text-slate-500">{x.project_name || "No project"}</p>
+                <p className="mt-1 text-xs text-muted">{x.project_name || "No project"}</p>
                 <div className="mt-2"><ProgressBar value={x.progress} /></div>
               </button>
             ))}

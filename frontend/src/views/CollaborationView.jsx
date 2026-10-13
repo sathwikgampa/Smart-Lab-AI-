@@ -33,18 +33,18 @@ function ActivityFeed() {
   return (
     <div className="panel p-4">
       <p className="section-title mb-3 flex items-center gap-2">
-        <Activity className="h-4 w-4 text-teal-500" /> Live activity
-        <span className="relative ml-1 flex h-2 w-2"><span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-teal-400 opacity-75" /><span className="relative inline-flex h-2 w-2 rounded-full bg-teal-500" /></span>
+        <Activity className="h-4 w-4 text-accent" /> Live activity
+        <span className="relative ml-1 flex h-2 w-2"><span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-accent/60 opacity-75" /><span className="relative inline-flex h-2 w-2 rounded-full bg-accent" /></span>
       </p>
-      {items.length === 0 ? <p className="text-sm text-slate-500">No activity yet.</p> : (
+      {items.length === 0 ? <p className="text-sm text-muted">No activity yet.</p> : (
         <ul className="space-y-2">
           {items.map((i) => {
             const Icon = KIND_ICON[i.kind] ?? Activity;
             return (
               <li key={`${i.kind}-${i.id}-${i.at}`} className="flex gap-2 text-xs">
-                <Icon className="mt-0.5 h-3.5 w-3.5 shrink-0 text-slate-400" />
+                <Icon className="mt-0.5 h-3.5 w-3.5 shrink-0 text-faint" />
                 <div className="min-w-0"><p className="truncate"><span className="font-medium">{i.actor || "System"}</span> · {i.summary}</p>
-                  <p className="text-[11px] text-slate-500">{i.at} · {i.ref}</p></div>
+                  <p className="text-[11px] text-muted">{i.at} · {i.ref}</p></div>
               </li>
             );
           })}
@@ -93,9 +93,9 @@ export default function CollaborationView() {
         <div className="space-y-2">
           {projects.loading ? <SkeletonRows rows={3} /> : projects.data?.map((p) => (
             <button key={p.id} onClick={() => setSelected(p.id)}
-              className={`panel w-full p-3 text-left ${selected === p.id ? "ring-2 ring-teal-500/60" : "hover:border-teal-500/40"}`}>
-              <p className="flex items-center gap-2 text-sm font-medium"><FolderKanban className="h-4 w-4 text-sky-500" />{p.name}</p>
-              <p className="mt-1 text-xs text-slate-500">{p.experiment_count} experiments · {p.file_count} files</p>
+              className={`panel w-full p-3 text-left ${selected === p.id ? "ring-2 ring-accent/60" : "hover:border-accent/40"}`}>
+              <p className="flex items-center gap-2 text-sm font-medium"><FolderKanban className="h-4 w-4 text-accent" />{p.name}</p>
+              <p className="mt-1 text-xs text-muted">{p.experiment_count} experiments · {p.file_count} files</p>
             </button>
           ))}
           <form onSubmit={create} className="flex gap-2">
@@ -108,25 +108,25 @@ export default function CollaborationView() {
           <div className="space-y-4">
             <div className="panel p-5">
               <h2 className="font-semibold">{project.name}</h2>
-              <p className="text-sm text-slate-500">{project.description}</p>
-              <p className="mt-1 text-xs text-slate-500">Owner: {project.owner_name || "-"}</p>
+              <p className="text-sm text-muted">{project.description}</p>
+              <p className="mt-1 text-xs text-muted">Owner: {project.owner_name || "-"}</p>
             </div>
             <div className="panel p-5">
               <p className="section-title mb-3">Shared files</p>
               <Dropzone accept=".pdf,.png,.jpg,.jpeg,.webp,.csv,.txt,.json" multiple onFiles={uploadFiles}
                 label="Drop files to share with the project" hint="PDF, images, CSV, TXT, JSON · validated server-side" />
               {files.loading ? <div className="mt-3"><SkeletonRows rows={2} /></div> : files.data?.length ? (
-                <ul className="mt-3 divide-y divide-slate-200">
+                <ul className="mt-3 divide-y divide-line">
                   {files.data.map((f) => (
                     <li key={f.id} className="flex items-center gap-3 py-2 text-sm">
-                      <FileText className="h-4 w-4 text-sky-500" />
+                      <FileText className="h-4 w-4 text-accent" />
                       <div className="min-w-0 flex-1"><p className="truncate font-medium">{f.original_name}</p>
-                        <p className="text-xs text-slate-500">{(f.size_bytes / 1024).toFixed(1)} KB · {f.uploader_name || "-"} · {f.uploaded_at}</p></div>
+                        <p className="text-xs text-muted">{(f.size_bytes / 1024).toFixed(1)} KB · {f.uploader_name || "-"} · {f.uploaded_at}</p></div>
                       <a className="btn-ghost p-2" href={api.fileUrl(f.id)} aria-label={`Download ${f.original_name}`}><Download className="h-4 w-4" /></a>
                     </li>
                   ))}
                 </ul>
-              ) : <p className="mt-3 text-sm text-slate-500">No files shared yet.</p>}
+              ) : <p className="mt-3 text-sm text-muted">No files shared yet.</p>}
             </div>
             <div className="panel p-5"><CommentThread entityType="project" entityId={project.id} /></div>
           </div>

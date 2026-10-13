@@ -174,7 +174,7 @@ export function Dialog({ open, onClose, title, description, children, footer, si
   useDialogBehaviour(open, onClose, ref, true);
   if (!open) return null;
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-nav/40 p-0 sm:items-center sm:p-4" onMouseDown={onClose}>
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/25 p-0 sm:items-center sm:p-4" onMouseDown={onClose}>
       <div ref={ref} role="dialog" aria-modal="true" tabIndex={-1} aria-labelledby={`${id}-t`} onMouseDown={(e) => e.stopPropagation()}
         className={`flex max-h-[92vh] w-full ${size} flex-col rounded-t-2xl bg-surface shadow-pop outline-none sm:rounded-2xl`}>
         <div className="flex items-start gap-3 border-b border-line px-5 py-4">
@@ -199,14 +199,14 @@ export function Drawer({ open, onClose, title, subtitle, children, footer, width
   if (bare) {
     // Content supplies its own header and close button.
     return (
-      <div className="fixed inset-0 z-40 flex justify-end bg-nav/30" onMouseDown={onClose}>
+      <div className="fixed inset-0 z-40 flex justify-end bg-black/20" onMouseDown={onClose}>
         <aside ref={ref} role="dialog" aria-modal="true" tabIndex={-1} aria-label={title} onMouseDown={(e) => e.stopPropagation()}
           className={`h-full w-full ${width} bg-surface shadow-pop outline-none`}>{children}</aside>
       </div>
     );
   }
   return (
-    <div className="fixed inset-0 z-40 flex justify-end bg-nav/30" onMouseDown={onClose}>
+    <div className="fixed inset-0 z-40 flex justify-end bg-black/20" onMouseDown={onClose}>
       <aside ref={ref} role="dialog" aria-modal="true" tabIndex={-1} aria-labelledby={`${id}-t`} onMouseDown={(e) => e.stopPropagation()}
         className={`flex h-full w-full ${width} flex-col bg-surface shadow-pop outline-none`}>
         <div className="flex items-start gap-3 border-b border-line px-5 py-4">
@@ -277,7 +277,7 @@ export function DropZone({ accept, maxMB = 25, multiple = false, onFiles, label,
         onDragLeave={() => setDragging(false)}
         onDrop={(e) => { e.preventDefault(); setDragging(false); if (!disabled) handle(e.dataTransfer.files); }}
         className={`flex w-full flex-col items-center justify-center gap-1 rounded-xl border border-dashed text-center transition-colors disabled:opacity-50
-          ${compact ? "px-3 py-4" : "px-4 py-8"} ${dragging ? "border-accent bg-accent-soft" : "border-slate-300 bg-canvas hover:border-accent"}`}>
+          ${compact ? "px-3 py-4" : "px-4 py-8"} ${dragging ? "border-accent bg-accent-soft" : "border-faint/50 bg-canvas hover:border-accent"}`}>
         <UploadCloud className="h-5 w-5 text-accent-strong" aria-hidden="true" />
         <span className="text-sm font-medium">{label}</span>
         {hint && <span className="text-xs text-muted">{hint}</span>}
@@ -355,7 +355,13 @@ export function useDebounced(value, ms = 250) {
 }
 
 /* ------------------------------------------- compatibility for early-feature pages */
-export function Tabs({ tabs, value, onChange }) {
-  return <div className="mb-4"><SegmentedControl options={tabs} value={value} onChange={onChange} label="Sections" /></div>;
+export function Tabs({ tabs, value, onChange, label = "Sections" }) {
+  return (
+    <div role="tablist" aria-label={label} className="mb-4 flex gap-5 overflow-x-auto border-b border-line">
+      {tabs.map((t) => (
+        <button key={t.id} role="tab" aria-selected={value === t.id} className="tab-u shrink-0" onClick={() => onChange(t.id)}>{t.label}</button>
+      ))}
+    </div>
+  );
 }
 export const Dropzone = DropZone;

@@ -99,9 +99,12 @@ export function Floating({ anchorRef, open, placement = "bottom-start", offset =
  */
 export function MenuButton({
   label, items, value, onSelect, renderButton, header, placement = "bottom-start", caret = false, menuLabel, className = "",
-  width = "w-56", footer,
+  width = "w-56", footer, onOpen,
 }) {
   const [open, setOpen] = useState(false);
+  const onOpenRef = useRef(onOpen);
+  onOpenRef.current = onOpen;
+  useEffect(() => { if (open) onOpenRef.current?.(); }, [open]);
   const btnRef = useRef(null);
   const listRef = useRef(null);
   const close = useCallback(({ restoreFocus } = {}) => { setOpen(false); if (restoreFocus) btnRef.current?.focus(); }, []);

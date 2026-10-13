@@ -163,18 +163,16 @@ function Rail({ current }) {
 function ScopePill() {
   const { askScope, setAskScope } = useApp();
   const [docs, setDocs] = useState([]);
-  useEffect(() => {
-    let alive = true;
-    api.documents({ sort: "title", order: "asc" }).then((d) => alive && setDocs(d)).catch(() => {});
-    return () => { alive = false; };
-  }, []);
+  // Reload on every open so documents uploaded since the last look are listed.
+  const load = useCallback(() => { api.documents({ sort: "title", order: "asc" }).then(setDocs).catch(() => {}); }, []);
+  useEffect(() => { load(); }, [load]);
   const items = [
     { id: "all", label: "All documents", description: "Search the whole library" },
     ...(docs.length ? [{ id: "div", divider: true }] : []),
     ...docs.slice(0, 30).map((d) => ({ id: String(d.id), label: d.title, description: [d.doc_type, d.version && `v${d.version}`].filter(Boolean).join(" · ") })),
   ];
   return (
-    <MenuButton label="Answer scope" width="w-72" className="max-h-[60vh] overflow-y-auto"
+    <MenuButton label="Answer scope" width="w-72" className="max-h-[60vh] overflow-y-auto" onOpen={load}
       items={items} value={askScope ? String(askScope.id) : "all"}
       onSelect={(id, item) => setAskScope(id === "all" ? null : { id: Number(id), title: item.label })}
       renderButton={({ ref, props }) => (

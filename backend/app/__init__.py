@@ -7,6 +7,7 @@ from flask import Flask, jsonify
 from flask_cors import CORS
 from werkzeug.exceptions import HTTPException
 
+from .auth import init_auth
 from .config import Config
 from .db import PgPool, close_db, connect, database_target, describe_database, init_schema
 from .rag.embeddings import get_embedder
@@ -28,7 +29,8 @@ def create_app(config_object: type[Config] | Config = Config, **overrides) -> Fl
         app.config[key].mkdir(parents=True, exist_ok=True)
     (app.config["UPLOAD_DIR"] / "shared").mkdir(exist_ok=True)
 
-    CORS(app, resources={r"/api/*": {"origins": app.config["CORS_ORIGINS"]}})
+    # Credentials (the session cookie) are allowed only for the configured origins.
+    CORS(app, resources={r"/api/*": {"origins": app.config["CORS_ORIGINS"]}}, supports_credentials=True)
 
     llm = ClaudeClient(app.config["LLM_MODEL"], app.config["LLM_EFFORT"], app.config["LLM_ENABLED"])
     embedder = get_embedder(app.config["EMBEDDING_BACKEND"], app.config["EMBEDDING_MODEL"])
@@ -59,6 +61,7 @@ def create_app(config_object: type[Config] | Config = Config, **overrides) -> Fl
     if app.config["DATABASE_ENGINE"] == "postgresql":
         app.extensions["smartlab_db_pool"] = PgPool(app.config["DATABASE_URL"], app.config["DB_POOL_MAX"])
     app.teardown_appcontext(close_db)
+    init_auth(app)
     _register_blueprints(app)
     _register_error_handlers(app)
 
@@ -81,10 +84,10 @@ def create_app(config_object: type[Config] | Config = Config, **overrides) -> Fl
 
 
 def _register_blueprints(app: Flask) -> None:
-    from .api import (agent, chat, collaboration, data, documents, experiments, literature, profiles, reagents,
+    from .api import (agent, auth, chat, collaboration, data, documents, experiments, literature, profiles, reagents,
                       safety, search, simulation, troubleshooting, vision)
 
-    for module in (agent, chat, collaboration, data, documents, experiments, literature, profiles, reagents,
+    for module in (agent, auth, chat, collaboration, data, documents, experiments, literature, profiles, reagents,
                    safety, search, simulation, troubleshooting, vision):
         app.register_blueprint(module.bp)
 

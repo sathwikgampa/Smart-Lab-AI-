@@ -7,6 +7,8 @@ export const UNREACHABLE = "Couldn't reach the server. Please try again.";
 
 // Network-level failures are broadcast so the shell can update its connection indicator.
 const broadcast = (reachable) => window.dispatchEvent(new CustomEvent("smartlab:connection", { detail: { reachable } }));
+// A 401 from a protected endpoint means the session ended; the app sends the user to log in.
+const signedOut = (path) => { if (!path.startsWith("/api/auth/")) window.dispatchEvent(new Event("smartlab:unauthorized")); };
 
 function apiError(message, status, data) {
   const error = new Error(message);
@@ -16,7 +18,7 @@ function apiError(message, status, data) {
 }
 
 async function request(path, { method = "GET", body, signal, quiet = false } = {}) {
-  const init = { method, signal, headers: {} };
+  const init = { method, signal, headers: {}, credentials: "include" };
   if (body !== undefined) {
     init.headers["Content-Type"] = "application/json";
     init.body = JSON.stringify(body);
@@ -34,6 +36,7 @@ async function request(path, { method = "GET", body, signal, quiet = false } = {
   const data = isJson ? await res.json() : await res.text();
   // A gateway/proxy error without the API's JSON body means the backend itself is down.
   if (!res.ok && !isJson && res.status >= 500) { if (!quiet) broadcast(false); throw apiError(UNREACHABLE, 0); }
+  if (res.status === 401) signedOut(path);
   if (!res.ok) throw apiError((isJson && data?.error) || `Request failed (${res.status})`, res.status, data);
   return data;
 }
@@ -48,10 +51,12 @@ function upload(path, fields, { onProgress, signal } = {}) {
     Object.entries(fields).forEach(([k, v]) => v !== undefined && v !== null && v !== "" && form.append(k, v));
     const xhr = new XMLHttpRequest();
     xhr.open("POST", `${BASE}${path}`);
+    xhr.withCredentials = true;
     xhr.upload.onprogress = (e) => e.lengthComputable && onProgress?.(e.loaded / e.total);
     xhr.onload = () => {
       let data = null;
       try { data = JSON.parse(xhr.responseText); } catch { /* non-JSON body */ }
+      if (xhr.status === 401) signedOut(path);
       if (xhr.status >= 200 && xhr.status < 300) resolve(data);
       else if (xhr.status >= 500 && data === null) { broadcast(false); reject(apiError(UNREACHABLE, 0)); }
       else reject(apiError(data?.error || `Upload failed (${xhr.status})`, xhr.status, data));
@@ -128,6 +133,14 @@ export const qs = (params) => {
 export const api = {
   // Background status check: failures update the indicator only, never a toast.
   health: () => request("/api/health", { quiet: true }),
+
+  // Authentication (session cookie set by the server; credentials never stored client-side)
+  me: () => request("/api/auth/me", { quiet: true }),
+  login: (email, password) => request("/api/auth/login", { method: "POST", body: { email, password } }),
+  signup: (payload) => request("/api/auth/signup", { method: "POST", body: payload }),
+  logout: () => request("/api/auth/logout", { method: "POST" }),
+  forgotPassword: (email) => request("/api/auth/forgot-password", { method: "POST", body: { email } }),
+  resetPassword: (token, password) => request("/api/auth/reset-password", { method: "POST", body: { token, password } }),
 
   // Documents
   documents: (params = {}) => request(`/api/documents${qs(params)}`),

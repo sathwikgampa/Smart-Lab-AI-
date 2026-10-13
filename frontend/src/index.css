@@ -216,3 +216,10 @@
 @media (prefers-reduced-motion: reduce) {
   .orb, .orb * { animation: none !important; transition: none !important; }
 }
+
+/* ------------------------------------------------------------------ public site */
+.reveal { opacity: 0; transform: translateY(14px); transition: opacity 600ms ease-out, transform 600ms cubic-bezier(0.2, 0.8, 0.2, 1); }
+.reveal.is-visible { opacity: 1; transform: none; }
+@media (prefers-reduced-motion: reduce) {
+  .reveal { opacity: 1; transform: none; transition: none; }
+}

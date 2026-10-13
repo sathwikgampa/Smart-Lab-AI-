@@ -149,11 +149,32 @@ class Config:
     SEED_AGENT_DEMO = _env_bool("SMARTLAB_SEED_AGENT_DEMO", True)
     TESTING = False
 
+    # Authentication. Every /api route except /api/health and /api/auth/* requires a signed-in session.
+    AUTH_REQUIRED = _env_bool("SMARTLAB_AUTH_REQUIRED", True)
+    SESSION_DAYS = int(os.getenv("SMARTLAB_SESSION_DAYS", "14"))
+    AUTH_COOKIE_NAME = "smartlab_session"
+    # "auto": Secure flag only when the request arrived over HTTPS. Set "true" in production behind HTTPS.
+    AUTH_COOKIE_SECURE = os.getenv("SMARTLAB_COOKIE_SECURE", "auto").strip().lower()
+    RESET_TOKEN_MINUTES = int(os.getenv("SMARTLAB_RESET_TOKEN_MINUTES", "30"))
+    # Base URL of the web app, used to build password-reset links.
+    PUBLIC_URL = os.getenv("SMARTLAB_PUBLIC_URL", "http://localhost:5173").rstrip("/")
+    # Outgoing mail for password resets. Without SMTP_HOST the reset link is written to the server log.
+    SMTP_HOST = os.getenv("SMARTLAB_SMTP_HOST", "").strip() or None
+    SMTP_PORT = int(os.getenv("SMARTLAB_SMTP_PORT", "587"))
+    SMTP_USER = os.getenv("SMARTLAB_SMTP_USER", "").strip() or None
+    SMTP_PASSWORD = os.getenv("SMARTLAB_SMTP_PASSWORD") or None
+    SMTP_FROM = os.getenv("SMARTLAB_SMTP_FROM", "").strip() or None
+    SMTP_STARTTLS = _env_bool("SMARTLAB_SMTP_STARTTLS", True)
+    # Attempts allowed per 15 minutes, per client address and per email address.
+    LOGIN_ATTEMPT_LIMIT = int(os.getenv("SMARTLAB_LOGIN_ATTEMPT_LIMIT", "10"))
+
 
 class TestConfig(Config):
     """Configuration used by the pytest suite: offline, deterministic, isolated."""
 
     TESTING = True
+    # The feature tests exercise the API directly; tests/test_auth.py turns this on.
+    AUTH_REQUIRED = False
     # Never inherit a cloud database from the environment or .env; PostgreSQL tests opt in explicitly.
     DATABASE_ENGINE = "sqlite"
     DATABASE_URL = None

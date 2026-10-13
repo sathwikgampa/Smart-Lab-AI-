@@ -6,6 +6,7 @@ in development, CI (pytest) and production without edits.
 from __future__ import annotations
 
 import os
+import re
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -38,14 +39,69 @@ def _env_bool(name: str, default: bool) -> bool:
     return value.strip().lower() in {"1", "true", "yes", "on"}
 
 
+POSTGRES_SCHEMES = ("postgresql://", "postgres://", "postgresql+psycopg2://")
+
+
+def is_postgres_url(url: str | None) -> bool:
+    return bool(url) and url.strip().lower().startswith(POSTGRES_SCHEMES)
+
+
+def normalize_postgres_url(url: str) -> str:
+    """libpq only accepts ``postgresql://`` / ``postgres://``; also strip SQLAlchemy-style driver suffixes."""
+    url = url.strip()
+    scheme, sep, rest = url.partition("://")
+    return f"postgresql{sep}{rest}" if scheme.lower() in {"postgres", "postgresql", "postgresql+psycopg2"} else url
+
+
+def resolve_database(environ: dict[str, str] | None = None) -> tuple[str, str | None]:
+    """Pick the database engine: ``SMARTLAB_DATABASE_URL``, then ``DATABASE_URL``, else local SQLite.
+
+    Returns ``(engine, url)`` where ``engine`` is ``"postgresql"`` or ``"sqlite"``. ``DATABASE_URL`` is a
+    generic name other tools also set, so a non-PostgreSQL value there is ignored; a non-PostgreSQL
+    ``SMARTLAB_DATABASE_URL`` is a configuration error.
+    """
+    env = os.environ if environ is None else environ
+    explicit = (env.get("SMARTLAB_DATABASE_URL") or "").strip()
+    if explicit:
+        if not is_postgres_url(explicit):
+            raise ValueError("SMARTLAB_DATABASE_URL must be a postgresql:// or postgres:// URL "
+                             "(leave it unset to use the local SQLite database).")
+        return "postgresql", normalize_postgres_url(explicit)
+    generic = (env.get("DATABASE_URL") or "").strip()
+    if is_postgres_url(generic):
+        return "postgresql", normalize_postgres_url(generic)
+    return "sqlite", None
+
+
+def redact_url(url: str | None) -> str:
+    """``postgresql://user:secret@host/db`` -> ``postgresql://user:***@host/db`` (safe to log)."""
+    if not url:
+        return ""
+    url = re.sub(r"(?i)(password=)[^&]*", r"\1***", url)
+    scheme, sep, rest = url.partition("://")
+    creds, at, host = rest.rpartition("@")
+    if not at or ":" not in creds:
+        return url
+    return f"{scheme}{sep}{creds.split(':', 1)[0]}:***@{host}"
+
+
+_DB_ENGINE, _DB_URL = resolve_database()
+
+
 class Config:
     """Default (development) configuration."""
 
     SECRET_KEY = os.getenv("SMARTLAB_SECRET_KEY", "dev-only-change-me")
     DATA_DIR = Path(os.getenv("SMARTLAB_DATA_DIR", BASE_DIR / "instance"))
     DATABASE_PATH = Path(os.getenv("SMARTLAB_DATABASE", DATA_DIR / "smartlab.db"))
+    # PostgreSQL (e.g. Supabase) when SMARTLAB_DATABASE_URL / DATABASE_URL is set; otherwise DATABASE_PATH.
+    DATABASE_ENGINE = _DB_ENGINE
+    DATABASE_URL = _DB_URL
+    DB_POOL_MAX = int(os.getenv("SMARTLAB_DB_POOL_MAX", "5"))
     UPLOAD_DIR = Path(os.getenv("SMARTLAB_UPLOAD_DIR", DATA_DIR / "uploads"))
-    INDEX_DIR = Path(os.getenv("SMARTLAB_INDEX_DIR", DATA_DIR / "index"))
+    # The vector index is keyed by chunk id, so a PostgreSQL database gets its own index directory
+    # rather than reusing one built from the SQLite file (it is rebuilt from the chunks table).
+    INDEX_DIR = Path(os.getenv("SMARTLAB_INDEX_DIR", DATA_DIR / ("index" if _DB_ENGINE == "sqlite" else "index-postgres")))
 
     # Upload limits (bytes). Flask rejects bodies larger than MAX_CONTENT_LENGTH with 413.
     MAX_CONTENT_LENGTH = int(os.getenv("SMARTLAB_MAX_UPLOAD_MB", "25")) * 1024 * 1024
@@ -83,6 +139,9 @@ class TestConfig(Config):
     """Configuration used by the pytest suite: offline, deterministic, isolated."""
 
     TESTING = True
+    # Never inherit a cloud database from the environment or .env; PostgreSQL tests opt in explicitly.
+    DATABASE_ENGINE = "sqlite"
+    DATABASE_URL = None
     LLM_ENABLED = False
     LITERATURE_ONLINE = False
     EMBEDDING_BACKEND = "hashing"

@@ -11,6 +11,8 @@ backend/instance.bak/
 *.db
 *.sqlite
 *.sqlite3
+*.dump
+*.backup
 
 # Node
 node_modules/

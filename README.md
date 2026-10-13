@@ -57,7 +57,8 @@ smartlab-ai/
 │   ├── app/
 │   │   ├── __init__.py           App factory: config, CORS, RAG engine, seeding, error handlers
 │   │   ├── config.py             Env-driven Config / TestConfig
-│   │   ├── db.py                 SQLite schema + helpers (Postgres-compatible SQL)
+│   │   ├── db.py                 Schema + helpers; SQLite, or PostgreSQL/Supabase via an sqlite3-compatible adapter
+│   │   ├── migrate_sqlite.py     One-off, non-destructive SQLite → PostgreSQL data copy
 │   │   ├── security.py           Upload validation pipeline
 │   │   ├── guardrails.py         Query screening + vision output sanitiser
 │   │   ├── seed.py               Demo SOP PDFs (generated with PyMuPDF) + demo records
@@ -69,7 +70,7 @@ smartlab-ai/
 │   │   ├── vision/analyzer.py    Claude vision (structured JSON) or heuristics → guardrails → SOP retrieval
 │   │   ├── services/             llm.py, inventory.py, troubleshooting.py, literature.py, simulation.py
 │   │   └── api/                  One blueprint per area (documents, chat, reagents, vision, ...)
-│   ├── tests/                    pytest suite (208 tests, offline and deterministic)
+│   ├── tests/                    pytest suite (offline and deterministic; optional PostgreSQL run)
 │   ├── requirements.txt          Core dependencies
 │   ├── requirements-ml.txt       Optional: sentence-transformers + faiss-cpu
 │   └── run.py                    Dev server entry point
@@ -139,8 +140,10 @@ The health badge in the top bar switches from **Offline mode** to the model name
 
 ```bash
 cd smartlab-ai/backend
-python -m pytest            # 208 tests, ~30 s, no network or API key needed
+python -m pytest            # SQLite, ~30 s, no network or API key needed
 ```
+
+PostgreSQL integration tests are skipped unless `SMARTLAB_TEST_DATABASE_URL` is set (see [Testing against PostgreSQL](#testing-against-postgresql)).
 
 | Test file | Covers |
 |---|---|
@@ -156,6 +159,8 @@ python -m pytest            # 208 tests, ~30 s, no network or API key needed
 | `test_simulation_literature.py` | Model correctness (½Vmax at Km, ΔCt per 10-fold, cardinal temperature, 4PL midpoint), validation, Europe PMC parsing, offline fallback |
 | `test_governance.py` | Document filters/sort/metadata/approval audit, version listing, re-index, conversation history, answer feedback → review queue → resolve, safety endpoints, settings, reagent audit, literature year filter/sort/sample labelling, schema migration of an old database |
 | `test_documents_api.py` | Upload → query → delete cycle, duplicate detection, text-less PDF, equipment tour, Claude client request shape / refusal / JSON |
+| `test_database_adapter.py` | Engine selection and env-var precedence, URL normalisation and password redaction, SQL translation (placeholders, literals, `LIKE`, `datetime('now')`), PostgreSQL schema, generated ids, row/cursor parity with `sqlite3`, pooled connection cleanup and rollback, SQLite request lifecycle |
+| `test_postgres_integration.py` | Real PostgreSQL: ids, timestamp format, numeric JSON, double precision, case-insensitive search, rollback recovery, pooled connections after errors, upserts, column migration, SQLite → PostgreSQL data migration (requires `SMARTLAB_TEST_DATABASE_URL`) |
 
 ---
 
@@ -174,11 +179,87 @@ All settings are environment variables (see `backend/app/config.py` and `.env.ex
 | `SMARTLAB_CHUNK_SIZE` / `_OVERLAP` | `700` / `120` | Chunking |
 | `SMARTLAB_MAX_UPLOAD_MB` | `25` | Upload limit |
 | `SMARTLAB_LITERATURE_ONLINE` | `true` | Use Europe PMC (false = offline sample corpus) |
-| `SMARTLAB_DATA_DIR` | `backend/instance` | DB, uploads, index |
+| `SMARTLAB_DATA_DIR` | `backend/instance` | SQLite DB, uploads, index |
+| `SMARTLAB_DATABASE_URL` | - | PostgreSQL / Supabase URL. When set, used instead of SQLite |
+| `DATABASE_URL` | - | Fallback for the above (ignored unless it is a `postgres(ql)://` URL) |
+| `SMARTLAB_DB_POOL_MAX` | `5` | Max pooled PostgreSQL connections per server process |
 | `SMARTLAB_CORS_ORIGINS` | `http://localhost:5173,...` | Allowed browser origins |
 | `SMARTLAB_SEED_DEMO` | `true` | Seed demo data into an empty DB |
 
-**Production:** serve with a WSGI server (`waitress-serve --port=5000 --call app:create_app` on Windows, or `gunicorn "app:create_app()"`). Set `SMARTLAB_SECRET_KEY` and put the API behind authentication: the demo has no login, and the "current user" is fixed in `AppContext.jsx`. For multi-user scale, move to PostgreSQL. The SQL is portable apart from `AUTOINCREMENT`.
+**Production:** serve with a WSGI server (`waitress-serve --port=5000 --call app:create_app` on Windows, or `gunicorn "app:create_app()"`). Set `SMARTLAB_SECRET_KEY` and put the API behind authentication: the demo has no login, and the "current user" is fixed in `AppContext.jsx`. For a hosted database, see [Deploying with Supabase](#deploying-with-supabase-postgresql).
+
+## Deploying with Supabase (PostgreSQL)
+
+The backend runs on local SQLite unless `SMARTLAB_DATABASE_URL` (or `DATABASE_URL`) holds a PostgreSQL URL. In that case it connects to PostgreSQL instead. The API and the frontend are the same either way, and `GET /api/health` reports `"database": "sqlite"` or `"postgresql"`. Tables are created automatically on first start. Start-up only ever adds missing tables and columns; it never drops anything.
+
+Pushing to GitHub does **not** move your data. The SQLite file, `.env` and `instance/` are git-ignored on purpose. The Supabase schema is created when the app first connects, and existing local data is copied with the migration command below.
+
+### 1. Get the connection string
+
+In the Supabase dashboard, open **Connect** and copy the URI for the right mode:
+
+| Where the backend runs | Use | Looks like |
+|---|---|---|
+| A long-running server (VM, Render, Railway, Fly, your laptop) | **Session pooler** (IPv4) | `postgresql://postgres.<ref>:<password>@aws-0-<region>.pooler.supabase.com:5432/postgres` |
+| Serverless / many short-lived processes | **Transaction pooler** | same host, port `6543` |
+| A host with IPv6 connectivity | Direct connection | `postgresql://postgres:<password>@db.<ref>.supabase.co:5432/postgres` |
+
+The direct connection is IPv6-only unless you buy the IPv4 add-on, and many hosts and home networks are IPv4-only, so the session pooler is the safe default. Append `?sslmode=require`. URL-encode special characters in the password (for example `@` becomes `%40`).
+
+### 2. Configure it (never commit it)
+
+- **Local:** put `SMARTLAB_DATABASE_URL=...` in `smartlab-ai/.env` or `backend/.env`. Both are git-ignored and read at start-up, and real environment variables take precedence. Remove the line to go back to SQLite.
+- **Hosting provider:** add `SMARTLAB_DATABASE_URL` as a secret environment variable in its dashboard.
+
+Logs show the database host with the password masked (`postgresql://postgres.<ref>:***@...`).
+
+### 3. Copy existing local data (optional)
+
+Run this **before** the app's first start against Supabase. Otherwise demo seeding fills the tables and the copy refuses to run.
+
+```bash
+cd smartlab-ai/backend
+# with SMARTLAB_DATABASE_URL set (e.g. in .env)
+python -m app.migrate_sqlite --dry-run   # copies inside a transaction, verifies counts, rolls back
+python -m app.migrate_sqlite             # copies and commits
+```
+
+How the migration behaves:
+
+- It opens the SQLite file read-only.
+- It creates the schema if needed.
+- It refuses to write if any target table already has rows. It never deletes or overwrites anything.
+- It copies every table in foreign-key order in a single transaction, keeping primary keys, NULLs, timestamps, the audit history and comment threads.
+- It advances the id sequences past the copied rows.
+
+Use `--sqlite path/to/other.db` to copy a different SQLite file.
+
+Uploaded files are not stored in the database. Copy `backend/instance/uploads/` to the server's upload directory (`SMARTLAB_DATA_DIR/uploads`). The vector index is rebuilt from the database automatically on start-up.
+
+### 4. Run the backend
+
+```bash
+pip install -r requirements.txt          # includes psycopg2-binary
+gunicorn -w 1 --threads 8 -b 0.0.0.0:$PORT "app:create_app()"   # Linux hosts
+# Windows: waitress-serve --port=5000 --threads=8 --call app:create_app
+```
+
+Then check `GET /api/health`. It should report `"database": "postgresql"`.
+
+Deployment notes:
+- **One process, several threads.** The vector index lives in process memory, so a document uploaded through one worker process is not searchable from another until they restart. Set `SMARTLAB_DB_POOL_MAX` to at least the thread count.
+- **Persistent disk for files.** Uploaded PDFs and shared files are written to `SMARTLAB_DATA_DIR`. On hosts with ephemeral disks, mount a persistent volume there. Without one, files are lost on redeploy: answers still work because chunk text is in the database, but page previews and downloads return 410.
+- **Demo data.** Set `SMARTLAB_SEED_DEMO=false` if you don't want the demo SOPs and records in a new production database.
+- **Lock down Supabase's Data API.** Supabase exposes tables in the `public` schema through its REST API to anyone holding the project's anon key. This backend doesn't use that API, so in the SQL editor run `ALTER TABLE <table> ENABLE ROW LEVEL SECURITY;` for each SmartLab table, or remove `public` from the exposed schemas (Settings → API). The backend connects as the table owner, so RLS does not affect it.
+
+### Testing against PostgreSQL
+
+The default test run uses SQLite only. `TestConfig` ignores `SMARTLAB_DATABASE_URL`, so tests never touch your Supabase database. To run the whole suite plus the PostgreSQL integration tests against a **disposable** database (each test uses its own temporary schema, which is then dropped):
+
+```bash
+docker run -d --rm --name smartlab-pg -e POSTGRES_PASSWORD=pw -p 55432:5432 postgres:16-alpine
+SMARTLAB_TEST_DATABASE_URL=postgresql://postgres:pw@127.0.0.1:55432/postgres python -m pytest
+```
 
 ## Upgrading an existing database
 

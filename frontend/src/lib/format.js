@@ -56,3 +56,12 @@ export async function copyText(text) {
 
 /** "1 page", "3 pages" */
 export const plural = (n, word, many = `${word}s`) => `${n} ${n === 1 ? word : many}`;
+
+/** Display type for a document or citation: "SOP" | "Manual" | "Safety" | "Other" (type chips and Documents tabs). */
+export function docKind(d) {
+  const type = String(d?.doc_type ?? "").toLowerCase();
+  if (d?.category === "Safety" || type.includes("safety")) return "Safety";
+  if (type === "sop") return "SOP";
+  if (type.includes("manual")) return "Manual";
+  return "Other";
+}

@@ -1,10 +1,10 @@
 import { useState } from "react";
 import {
-  Check, CheckCircle2, ChevronDown, Copy, Eye, FileText, Flag, ImageIcon, RefreshCw, Search, ThumbsUp, UploadCloud, Wrench,
+  AlignLeft, Check, CheckCircle2, Copy, Eye, FileText, Flag, ImageIcon, Layers, RefreshCw, Search, ThumbsUp, UploadCloud, Wrench,
 } from "lucide-react";
 import { useApp } from "../context/AppContext";
 import { api } from "../lib/api";
-import { answerBody, copyText } from "../lib/format";
+import { answerBody, copyText, docKind } from "../lib/format";
 import { ApprovalBadge, Badge, Markdown, Notice, Spinner } from "./ui";
 
 /* ------------------------------------------------------------ evidence state */
@@ -32,7 +32,7 @@ function EvidenceNotices({ msg, question }) {
   }
   if (msg.evidence_status === "insufficient") {
     notices.push(
-      <Notice key="none" tone="info" title="Not covered by your documents"
+      <Notice key="none" tone="info" title="No supporting document found"
         action={
           <div className="flex flex-wrap gap-2">
             <a className="btn-secondary btn-sm" href="#/documents?upload=1"><UploadCloud className="h-3.5 w-3.5" /> Upload a document</a>
@@ -73,37 +73,40 @@ function EvidenceNotices({ msg, question }) {
 }
 
 /* ------------------------------------------------------------------ sources */
-function SourceList({ citations, onOpen }) {
-  const [open, setOpen] = useState(null);
+/** Compact numbered source cards. Clicking one opens the page with the excerpt highlighted. */
+function SourceCards({ citations, onOpen }) {
+  const { citationsOn } = useApp();
+  const [show, setShow] = useState(false);
+  const visible = citationsOn || show;
   return (
-    <div>
-      <p className="eyebrow mb-2">Sources</p>
-      <ol className="divide-y divide-line rounded-lg border border-line">
-        {citations.map((c) => (
-          <li key={c.n} className="text-sm">
-            <div className="flex items-start gap-2 px-3 py-2">
-              <span className="mt-0.5 font-mono text-2xs font-semibold text-accent-strong">[{c.n}]</span>
-              <div className="min-w-0 flex-1">
-                <button className="text-left font-medium hover:text-accent-strong hover:underline" onClick={() => onOpen(c)}>
-                  {c.document_title}
-                </button>
-                <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-xs text-muted">
-                  <span>Page {c.page}</span>
-                  {c.version && <span>· v{c.version}</span>}
-                  {c.approval_status && <ApprovalBadge status={c.approval_status} />}
-                </div>
-              </div>
-              <button className="btn-ghost btn-sm h-7 px-2" aria-expanded={open === c.n} onClick={() => setOpen(open === c.n ? null : c.n)}>
-                Excerpt <ChevronDown className={`h-3.5 w-3.5 transition-transform ${open === c.n ? "rotate-180" : ""}`} />
+    <section aria-label="Sources">
+      <div className="mb-2 flex items-center gap-2">
+        <h3 className="flex items-center gap-1.5 text-xs font-semibold text-ink"><Layers className="h-3.5 w-3.5 text-accent" aria-hidden="true" /> Sources</h3>
+        <span className="text-xs text-muted">{citations.length}</span>
+        {!citationsOn && (
+          <button type="button" className="link text-xs" aria-expanded={show} onClick={() => setShow((v) => !v)}>{show ? "Hide" : "Show"}</button>
+        )}
+      </div>
+      {visible && (
+        <ol className="flex snap-x gap-2 overflow-x-auto pb-1 [scrollbar-width:thin]">
+          {citations.map((c) => (
+            <li key={c.n} className="w-52 shrink-0 snap-start">
+              <button type="button" onClick={() => onOpen(c)} title={c.snippet}
+                aria-label={`Source ${c.n}: ${c.document_title}, page ${c.page}`}
+                className="flex h-full w-full flex-col gap-1.5 rounded-xl border border-line bg-surface p-2.5 text-left shadow-panel transition-colors hover:border-accent/40 hover:bg-accent-soft/30">
+                <span className="flex items-center gap-1.5">
+                  <span className="flex h-5 min-w-5 items-center justify-center rounded-md bg-accent-soft px-1 font-mono text-2xs font-semibold text-accent-strong">{c.n}</span>
+                  <span className="type-chip h-5 px-1.5 text-2xs">{docKind(c)}</span>
+                  {c.approval_status && c.approval_status !== "approved" && <ApprovalBadge status={c.approval_status} />}
+                </span>
+                <span className="line-clamp-2 text-[0.8125rem] font-medium leading-snug text-ink">{c.document_title}</span>
+                <span className="text-xs text-muted">Page {c.page}{c.version ? ` · v${c.version}` : ""}</span>
               </button>
-            </div>
-            {open === c.n && (
-              <blockquote className="mx-3 mb-3 rounded-md border-l-2 border-accent bg-canvas px-3 py-2 text-sm leading-6 text-ink">{c.snippet}</blockquote>
-            )}
-          </li>
-        ))}
-      </ol>
-    </div>
+            </li>
+          ))}
+        </ol>
+      )}
+    </section>
   );
 }
 
@@ -180,7 +183,7 @@ export function UserMessage({ text, attachment }) {
             <span className="max-w-[12rem] truncate">{attachment.name}</span>
           </div>
         )}
-        {text && <p className="whitespace-pre-wrap rounded-2xl rounded-br-md bg-subtle px-4 py-2.5 text-[0.9375rem] leading-6">{text}</p>}
+        {text && <p className="whitespace-pre-wrap rounded-2xl rounded-br-md bg-bubble px-4 py-2.5 text-[0.9375rem] leading-6 text-ink">{text}</p>}
       </div>
     </div>
   );
@@ -198,8 +201,13 @@ export function AnswerMessage({ msg, question }) {
         {msg.mode === "extractive" && <span className="meta">Quoted from documents</span>}
       </div>
       <EvidenceNotices msg={msg} question={question} />
-      {msg.evidence_status !== "insufficient" && <Markdown citations={citations} onCite={onCite}>{answerBody(msg.answer)}</Markdown>}
-      {citations.length > 0 && <SourceList citations={citations} onOpen={onCite} />}
+      {citations.length > 0 && <SourceCards citations={citations} onOpen={onCite} />}
+      {msg.evidence_status !== "insufficient" && (
+        <section aria-label="Answer">
+          <h3 className="mb-1.5 flex items-center gap-1.5 text-xs font-semibold text-ink"><AlignLeft className="h-3.5 w-3.5 text-accent" aria-hidden="true" /> Answer</h3>
+          <Markdown citations={citations} onCite={onCite}>{answerBody(msg.answer)}</Markdown>
+        </section>
+      )}
       <FeedbackControls messageId={msg.message_id} text={msg.answer} initial={msg.feedback} />
     </article>
   );

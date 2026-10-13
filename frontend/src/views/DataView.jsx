@@ -9,16 +9,16 @@ import { Dropzone, EmptyState, PageHeader, Skeleton, SkeletonRows, useAsync } fr
 function StatTile({ name, s }) {
   return (
     <div className="panel-muted p-3">
-      <p className="truncate text-[11px] font-medium uppercase tracking-wide text-slate-500">{name}</p>
+      <p className="truncate text-[11px] font-medium uppercase tracking-wide text-muted">{name}</p>
       {s.type === "numeric" ? (
         <>
           <p className="mt-1 text-lg font-semibold tabular-nums">{s.mean}</p>
-          <p className="text-[11px] tabular-nums text-slate-500">mean · SD {s.std} · {s.min}–{s.max} · n={s.count}</p>
+          <p className="text-[11px] tabular-nums text-muted">mean · SD {s.std} · {s.min}–{s.max} · n={s.count}</p>
         </>
       ) : (
         <>
           <p className="mt-1 text-lg font-semibold tabular-nums">{s.distinct}</p>
-          <p className="text-[11px] text-slate-500">distinct values · n={s.count}</p>
+          <p className="text-[11px] text-muted">distinct values · n={s.count}</p>
         </>
       )}
     </div>
@@ -82,9 +82,9 @@ export default function DataView() {
         <div className="space-y-3">
           {list.loading ? <SkeletonRows rows={3} /> : list.data?.map((d) => (
             <button key={d.id} onClick={() => { setSelected(d.id); setFilter({ column: "", value: "" }); setSort({ key: "", order: "asc" }); }}
-              className={`panel w-full p-3 text-left ${selected === d.id ? "ring-2 ring-teal-500/60" : "hover:border-teal-500/40"}`}>
+              className={`panel w-full p-3 text-left ${selected === d.id ? "ring-2 ring-accent/60" : "hover:border-accent/40"}`}>
               <p className="text-sm font-medium">{d.name}</p>
-              <p className="text-xs text-slate-500">{d.row_count} rows · {d.columns.length} columns</p>
+              <p className="text-xs text-muted">{d.row_count} rows · {d.columns.length} columns</p>
             </button>
           ))}
           <Dropzone compact accept=".csv" onFiles={onUpload} label="Import CSV" hint="Header row required" />
@@ -94,8 +94,8 @@ export default function DataView() {
           <div className="space-y-4">
             <div className="panel p-5">
               <div className="flex items-start justify-between gap-2">
-                <div><h2 className="font-semibold">{data.name}</h2><p className="text-sm text-slate-500">{data.description}</p></div>
-                <button className="btn-ghost p-2 text-rose-500" onClick={remove} aria-label="Delete dataset"><Trash2 className="h-4 w-4" /></button>
+                <div><h2 className="font-semibold">{data.name}</h2><p className="text-sm text-muted">{data.description}</p></div>
+                <button className="btn-ghost p-2 text-critical" onClick={remove} aria-label="Delete dataset"><Trash2 className="h-4 w-4" /></button>
               </div>
               <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-4">
                 {data.columns.map((c) => <StatTile key={c} name={c} s={data.stats[c]} />)}
@@ -104,11 +104,11 @@ export default function DataView() {
 
             <div className="panel p-5">
               <div className="mb-3 flex flex-wrap items-center gap-2">
-                <p className="section-title mr-auto flex items-center gap-2"><BarChart3 className="h-4 w-4 text-sky-500" />
+                <p className="section-title mr-auto flex items-center gap-2"><BarChart3 className="h-4 w-4 text-accent" />
                   {xIsNumeric ? `${y} vs ${x}` : `Mean ${y} by ${x}`}</p>
-                <label className="text-xs text-slate-500">X</label>
+                <label className="text-xs text-muted">X</label>
                 <select className="input w-auto py-1 text-xs" value={x} onChange={(e) => setX(e.target.value)}>{data.columns.map((c) => <option key={c}>{c}</option>)}</select>
-                <label className="text-xs text-slate-500">Y</label>
+                <label className="text-xs text-muted">Y</label>
                 <select className="input w-auto py-1 text-xs" value={y} onChange={(e) => setY(e.target.value)}>{numericCols.map((c) => <option key={c}>{c}</option>)}</select>
               </div>
               {chartData.length === 0 ? <EmptyState icon={BarChart3} title="Nothing to plot">Choose a numeric Y column.</EmptyState> : (
@@ -139,29 +139,29 @@ export default function DataView() {
             </div>
 
             <div className="panel overflow-hidden">
-              <div className="flex flex-wrap items-center gap-2 border-b border-slate-200 p-3">
-                <Filter className="h-4 w-4 text-slate-400" />
+              <div className="flex flex-wrap items-center gap-2 border-b border-line p-3">
+                <Filter className="h-4 w-4 text-faint" />
                 <select className="input w-auto py-1 text-xs" value={filter.column} onChange={(e) => setFilter({ ...filter, column: e.target.value })}>
                   <option value="">Filter column...</option>{data.columns.map((c) => <option key={c}>{c}</option>)}
                 </select>
                 <input className="input w-48 py-1 text-xs" placeholder="contains..." value={filter.value}
                   onChange={(e) => setFilter({ ...filter, value: e.target.value })} disabled={!filter.column} />
-                <span className="ml-auto text-xs text-slate-500">{data.total_rows} row(s)</span>
+                <span className="ml-auto text-xs text-muted">{data.total_rows} row(s)</span>
               </div>
               <div className="max-h-[28rem] overflow-auto">
                 <table className="w-full">
-                  <thead className="sticky top-0 bg-slate-50">
+                  <thead className="sticky top-0 bg-canvas">
                     <tr>{data.columns.map((c) => (
                       <th key={c} className="table-head">
                         <button className="inline-flex items-center gap-1" onClick={() => setSort((s) => ({ key: c, order: s.key === c && s.order === "asc" ? "desc" : "asc" }))}>
-                          {c}<ArrowDownUp className={`h-3 w-3 ${sort.key === c ? "text-teal-500" : ""}`} />
+                          {c}<ArrowDownUp className={`h-3 w-3 ${sort.key === c ? "text-accent" : ""}`} />
                         </button>
                       </th>
                     ))}</tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-200">
+                  <tbody className="divide-y divide-line">
                     {data.rows.map((r, i) => (
-                      <tr key={i} className="hover:bg-slate-50">
+                      <tr key={i} className="hover:bg-canvas">
                         {data.columns.map((c) => <td key={c} className={`table-cell ${typeof r[c] === "number" ? "tabular-nums" : ""}`}>{String(r[c] ?? "")}</td>)}
                       </tr>
                     ))}

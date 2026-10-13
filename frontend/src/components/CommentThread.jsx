@@ -6,17 +6,17 @@ import { SkeletonRows, useAsync } from "./ui";
 
 function Comment({ c, onReply, depth = 0 }) {
   return (
-    <div className={depth ? "ml-6 border-l border-slate-200 pl-3" : ""}>
+    <div className={depth ? "ml-6 border-l border-line pl-3" : ""}>
       <div className="flex gap-2 py-2">
-        <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[11px] font-bold text-slate-950"
-          style={{ background: c.avatar_color || "#64748b" }}>
+        <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[11px] font-bold text-ink"
+          style={{ background: c.avatar_color || "#8A8A90" }}>
           {(c.author_name || "?").split(" ").map((p) => p[0]).slice(0, 2).join("")}
         </div>
         <div className="min-w-0 flex-1">
           <p className="text-xs"><span className="font-semibold">{c.author_name || "Unknown"}</span>
-            <span className="ml-2 text-slate-500">{c.created_at}</span></p>
+            <span className="ml-2 text-muted">{c.created_at}</span></p>
           <p className="mt-0.5 whitespace-pre-wrap text-sm">{c.body}</p>
-          <button className="mt-1 inline-flex items-center gap-1 text-[11px] text-slate-500 hover:text-teal-500" onClick={() => onReply(c)}>
+          <button className="mt-1 inline-flex items-center gap-1 text-[11px] text-muted hover:text-accent-strong" onClick={() => onReply(c)}>
             <CornerDownRight className="h-3 w-3" /> Reply
           </button>
         </div>
@@ -48,14 +48,14 @@ export default function CommentThread({ entityType, entityId }) {
 
   return (
     <div>
-      <p className="section-title mb-2 flex items-center gap-2"><MessageSquare className="h-4 w-4 text-sky-500" /> Discussion</p>
+      <p className="section-title mb-2 flex items-center gap-2"><MessageSquare className="h-4 w-4 text-accent" /> Discussion</p>
       {thread.loading ? <SkeletonRows rows={2} /> : thread.data?.length
-        ? <div className="divide-y divide-slate-100">{thread.data.map((c) => <Comment key={c.id} c={c} onReply={setReplyTo} />)}</div>
-        : <p className="py-2 text-sm text-slate-500">No comments yet.</p>}
+        ? <div className="divide-y divide-line">{thread.data.map((c) => <Comment key={c.id} c={c} onReply={setReplyTo} />)}</div>
+        : <p className="py-2 text-sm text-muted">No comments yet.</p>}
       <form onSubmit={submit} className="mt-3">
         {replyTo && (
-          <p className="mb-1 text-xs text-slate-500">Replying to {replyTo.author_name}
-            <button type="button" className="ml-2 text-rose-500" onClick={() => setReplyTo(null)}>cancel</button></p>
+          <p className="mb-1 text-xs text-muted">Replying to {replyTo.author_name}
+            <button type="button" className="ml-2 text-critical" onClick={() => setReplyTo(null)}>cancel</button></p>
         )}
         <div className="flex gap-2">
           <input className="input" value={body} onChange={(e) => setBody(e.target.value)} placeholder={`Comment as ${currentUser.name}...`} />

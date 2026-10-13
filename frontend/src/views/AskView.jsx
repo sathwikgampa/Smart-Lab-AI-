@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  AlertTriangle, ChevronRight, FileText, History, MessageSquareText, Trash2, X,
+  AlertTriangle, BookOpen, Boxes, ChevronRight, CornerDownRight, FileText, FileUp, History, ImagePlus, MessageSquareText,
+  ShieldAlert, Trash2, Wrench, X,
 } from "lucide-react";
 import { useApp } from "../context/AppContext";
 import { api } from "../lib/api";
-import { formatDateTime, timeAgo } from "../lib/format";
+import { docKind, formatDateTime, timeAgo } from "../lib/format";
 import { takePendingQuestion } from "../lib/pending";
 import { navigate } from "../lib/router";
 import Composer, { ATTACH_ACCEPT, checkAttachment, makeAttachment } from "../components/Composer";
@@ -83,9 +84,76 @@ function HistoryDrawer({ open, onClose, current }) {
   );
 }
 
+const TASKS = [
+  { label: "Check reagent stock", href: "#/reagents", icon: Boxes },
+  { label: "Find a verified fix", href: "#/troubleshooting", icon: Wrench },
+  { label: "Search literature", href: "#/literature", icon: BookOpen },
+  { label: "Safety resources", href: "#/safety", icon: ShieldAlert },
+];
+
+/** Thread side panel: add sources, jump to related tasks, ask a suggested question. */
+function ThreadPanel({ messages, onUploadFile, onUploadMedia, onAsk, disabled }) {
+  const { openEvidence } = useApp();
+  const asked = new Set(messages.filter((m) => m.role === "user").map((m) => m.text));
+  const cited = [];
+  const seen = new Set();
+  for (const m of messages) {
+    for (const c of m.citations ?? []) {
+      if (!seen.has(c.document_id)) { seen.add(c.document_id); cited.push({ c, all: m.citations }); }
+    }
+  }
+  return (
+    <aside aria-label="Thread tools" className="hidden w-[280px] shrink-0 flex-col gap-6 overflow-y-auto border-l border-line bg-surface px-4 py-5 xl:flex">
+      <section>
+        <h2 className="mb-2 text-xs font-semibold text-ink">Sources</h2>
+        <div className="grid grid-cols-2 gap-2">
+          <button type="button" className="pill h-9 justify-center" onClick={onUploadFile} disabled={disabled}><FileUp aria-hidden="true" /> Upload file</button>
+          <button type="button" className="pill h-9 justify-center" onClick={onUploadMedia} disabled={disabled}><ImagePlus aria-hidden="true" /> Upload media</button>
+        </div>
+        {cited.length > 0 ? (
+          <ul className="mt-3 space-y-1">
+            {cited.map(({ c, all }) => (
+              <li key={c.document_id}>
+                <button type="button" onClick={() => openEvidence(c, all)} className="flex w-full items-start gap-2 rounded-lg px-2 py-1.5 text-left hover:bg-subtle">
+                  <FileText className="mt-0.5 h-3.5 w-3.5 shrink-0 text-faint" aria-hidden="true" />
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-[0.8125rem] text-ink">{c.document_title}</span>
+                    <span className="block text-2xs text-muted">{docKind(c)}{c.version ? ` · v${c.version}` : ""}</span>
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        ) : <p className="mt-3 text-xs text-muted">Documents cited in this thread will be listed here.</p>}
+      </section>
+      <section>
+        <h2 className="mb-2 text-xs font-semibold text-ink">Suggested tasks</h2>
+        <div className="flex flex-wrap gap-1.5">
+          {TASKS.map((t) => (
+            <a key={t.label} href={t.href} className="chip"><t.icon className="h-3.5 w-3.5 text-muted" aria-hidden="true" />{t.label}</a>
+          ))}
+        </div>
+      </section>
+      <section>
+        <h2 className="mb-1 text-xs font-semibold text-ink">Suggested questions</h2>
+        <ul className="-mx-2">
+          {STARTERS.filter((q) => !asked.has(q)).map((q) => (
+            <li key={q}>
+              <button type="button" disabled={disabled} onClick={() => onAsk(q)}
+                className="flex w-full items-start gap-2 rounded-lg px-2 py-2 text-left text-[0.8125rem] leading-snug text-ink hover:bg-subtle disabled:opacity-50">
+                <CornerDownRight className="mt-0.5 h-3.5 w-3.5 shrink-0 text-faint" aria-hidden="true" />{q}
+              </button>
+            </li>
+          ))}
+        </ul>
+      </section>
+    </aside>
+  );
+}
+
 export default function AskView({ route }) {
   const {
-    toast, health, healthError, currentUser, askScope: scope, setAskScope: setScope, setThreadTitle,
+    toast, health, healthError, currentUser, askScope: scope, setAskScope: setScope, setThreadTitle, evidence,
   } = useApp();
   const isOverview = route.path[0] === "overview";
   const routeSession = route.path[1] ?? null;
@@ -100,6 +168,7 @@ export default function AskView({ route }) {
   const bottomRef = useRef(null);
   const ownSession = useRef(null); // session created in this view; don't reload it from the server
   const imageInputRef = useRef(null);
+  const pdfInputRef = useRef(null);
 
   const empty = !loadingHistory && messages.length === 0;
   const home = isOverview && empty;
@@ -261,8 +330,17 @@ export default function AskView({ route }) {
       <button className="btn-ghost h-6 px-1.5 text-xs" onClick={() => setScope(null)} aria-label="Search all documents again"><X className="h-3.5 w-3.5" /> All documents</button>
     </div>
   );
+  const pickPdf = (file) => {
+    if (!file) return;
+    const check = checkAttachment(file, health?.max_upload_mb ?? 25);
+    if (check.error || check.kind !== "pdf") { toast(check.error ?? "Choose a PDF document.", "error"); return; }
+    setAttachment(makeAttachment(file));
+  };
   const imageInput = (
-    <input ref={imageInputRef} type="file" hidden accept={ATTACH_ACCEPT.replace(".pdf,", "")} onChange={(e) => { pickImage(e.target.files?.[0]); e.target.value = ""; }} />
+    <>
+      <input ref={imageInputRef} type="file" hidden accept={ATTACH_ACCEPT.replace(".pdf,", "")} onChange={(e) => { pickImage(e.target.files?.[0]); e.target.value = ""; }} />
+      <input ref={pdfInputRef} type="file" hidden accept=".pdf" onChange={(e) => { pickPdf(e.target.files?.[0]); e.target.value = ""; }} />
+    </>
   );
 
   /* ------------------------------------------------------------- home (Overview) */
@@ -287,134 +365,140 @@ export default function AskView({ route }) {
 
   /* -------------------------------------------- Ask landing and conversation thread */
   return (
-    <div className="flex h-full flex-col">
-      <div className="min-h-0 flex-1 overflow-y-auto">
-        <div className={`mx-auto w-full px-4 py-6 sm:px-6 ${empty ? "max-w-4xl" : "max-w-3xl space-y-6"}`}>
-          {loadingHistory && <div className="space-y-4"><Skeleton className="ml-auto h-10 w-2/3" /><Skeleton className="h-32 w-full" /></div>}
-
-          {empty && (
-            <div className="space-y-6 pt-1">
-              <div className="flex flex-wrap items-end justify-between gap-3">
-                <div>
-                  <h1 className="text-xl font-semibold tracking-tight">Ask SmartLab</h1>
-                  <p className="mt-1 text-sm text-muted">Answers come from your documents, with the page behind every claim.</p>
-                </div>
-                <button className="pill" onClick={() => setHistoryOpen(true)}><History aria-hidden="true" /> History</button>
-              </div>
-
-              <div>
-                <p className="eyebrow mb-2">Suggested questions</p>
-                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                  {STARTERS.map((q) => (
-                    <button key={q} onClick={() => submit(q)} disabled={busy || offline}
-                      className="rounded-xl border border-line bg-surface px-3.5 py-3 text-left text-sm shadow-panel transition-colors hover:bg-subtle disabled:opacity-50">
-                      {q}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 items-start gap-5 lg:grid-cols-2">
-                {(needsReview.length > 0 || reagentAlerts.length > 0) && (
-                  <div className="lg:col-span-2">
-                    <OverviewSection title="Needs attention">
-                      <ul className="divide-y divide-line text-sm">
-                        {needsReview.length > 0 && (
-                          <li>
-                            <a href="#/documents?status=review" className="flex items-center gap-3 px-4 py-2.5 hover:bg-subtle">
-                              <AlertTriangle className="h-4 w-4 shrink-0 text-warning-ink" aria-hidden="true" />
-                              <span className="flex-1">{needsReview.length} document(s) awaiting review or approval</span>
-                              <ChevronRight className="h-4 w-4 text-faint" aria-hidden="true" />
-                            </a>
-                          </li>
-                        )}
-                        {reagentAlerts.length > 0 && (
-                          <li>
-                            <a href="#/reagents?status=expired" className="flex items-center gap-3 px-4 py-2.5 hover:bg-subtle">
-                              <AlertTriangle className="h-4 w-4 shrink-0 text-warning-ink" aria-hidden="true" />
-                              <span className="flex-1">{summary.data.expired.length} reagent(s) expired, {summary.data.expiring_soon.length} expiring within 30 days</span>
-                              <ChevronRight className="h-4 w-4 text-faint" aria-hidden="true" />
-                            </a>
-                          </li>
-                        )}
-                      </ul>
-                    </OverviewSection>
+    <div className="flex h-full">
+      <div className="flex min-w-0 flex-1 flex-col">
+        <div className="min-h-0 flex-1 overflow-y-auto">
+          <div className={`mx-auto w-full px-4 py-6 sm:px-6 ${empty ? "max-w-4xl" : "max-w-3xl space-y-6"}`}>
+            {loadingHistory && <div className="space-y-4"><Skeleton className="ml-auto h-10 w-2/3" /><Skeleton className="h-32 w-full" /></div>}
+  
+            {empty && (
+              <div className="space-y-6 pt-1">
+                <div className="flex flex-wrap items-end justify-between gap-3">
+                  <div>
+                    <h1 className="text-xl font-semibold tracking-tight">Ask SmartLab</h1>
+                    <p className="mt-1 text-sm text-muted">Answers come from your documents, with the page behind every claim.</p>
                   </div>
-                )}
-
-                <OverviewSection title="Recent conversations" onLink={() => setHistoryOpen(true)} linkLabel="All history">
-                  {recentSessions.loading ? <div className="p-4"><Skeleton className="h-24" /></div> : !recentSessions.data?.length ? (
-                    <p className="px-4 py-6 text-sm text-muted">No conversations yet. Questions you ask will appear here.</p>
-                  ) : (
-                    <ul className="divide-y divide-line">
-                      {recentSessions.data.slice(0, 5).map((s) => (
-                        <li key={s.session_id}>
-                          <a href={`#/ask/${s.session_id}`} className="flex items-center gap-3 px-4 py-2.5 hover:bg-subtle">
-                            <MessageSquareText className="h-4 w-4 shrink-0 text-faint" aria-hidden="true" />
-                            <span className="min-w-0 flex-1 truncate text-sm">{s.title || "Untitled"}</span>
-                            <span className="shrink-0 text-xs text-muted">{timeAgo(s.updated_at)}</span>
-                          </a>
-                        </li>
-                      ))}
-                    </ul>
+                  <button className="pill" onClick={() => setHistoryOpen(true)}><History aria-hidden="true" /> History</button>
+                </div>
+  
+                <div>
+                  <p className="eyebrow mb-2">Suggested questions</p>
+                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                    {STARTERS.map((q) => (
+                      <button key={q} onClick={() => submit(q)} disabled={busy || offline}
+                        className="rounded-xl border border-line bg-surface px-3.5 py-3 text-left text-sm shadow-panel transition-colors hover:bg-subtle disabled:opacity-50">
+                        {q}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+  
+                <div className="grid grid-cols-1 items-start gap-5 lg:grid-cols-2">
+                  {(needsReview.length > 0 || reagentAlerts.length > 0) && (
+                    <div className="lg:col-span-2">
+                      <OverviewSection title="Needs attention">
+                        <ul className="divide-y divide-line text-sm">
+                          {needsReview.length > 0 && (
+                            <li>
+                              <a href="#/documents?status=review" className="flex items-center gap-3 px-4 py-2.5 hover:bg-subtle">
+                                <AlertTriangle className="h-4 w-4 shrink-0 text-warning-ink" aria-hidden="true" />
+                                <span className="flex-1">{needsReview.length} document(s) awaiting review or approval</span>
+                                <ChevronRight className="h-4 w-4 text-faint" aria-hidden="true" />
+                              </a>
+                            </li>
+                          )}
+                          {reagentAlerts.length > 0 && (
+                            <li>
+                              <a href="#/reagents?status=expired" className="flex items-center gap-3 px-4 py-2.5 hover:bg-subtle">
+                                <AlertTriangle className="h-4 w-4 shrink-0 text-warning-ink" aria-hidden="true" />
+                                <span className="flex-1">{summary.data.expired.length} reagent(s) expired, {summary.data.expiring_soon.length} expiring within 30 days</span>
+                                <ChevronRight className="h-4 w-4 text-faint" aria-hidden="true" />
+                              </a>
+                            </li>
+                          )}
+                        </ul>
+                      </OverviewSection>
+                    </div>
                   )}
-                </OverviewSection>
-
-                <OverviewSection title="Recently updated documents" href="#/documents" linkLabel="All documents">
-                  {docs.loading ? <div className="p-4"><Skeleton className="h-24" /></div> : !allDocs.length ? (
-                    <p className="px-4 py-6 text-sm text-muted">No documents yet. <a className="link" href="#/documents?upload=1">Upload a PDF</a> to start.</p>
-                  ) : (
-                    <ul className="divide-y divide-line">
-                      {allDocs.slice(0, 5).map((d) => (
-                        <li key={d.id}>
-                          <a href={`#/documents/${d.id}`} className="flex items-center gap-3 px-4 py-2.5 hover:bg-subtle">
-                            <FileText className="h-4 w-4 shrink-0 text-faint" aria-hidden="true" />
-                            <span className="min-w-0 flex-1">
-                              <span className="block truncate text-sm">{d.title}</span>
-                              <span className="block text-xs text-muted">{d.version ? `v${d.version} · ` : ""}{d.category}</span>
-                            </span>
-                            <ApprovalBadge status={d.approval_status} />
-                          </a>
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                </OverviewSection>
+  
+                  <OverviewSection title="Recent conversations" onLink={() => setHistoryOpen(true)} linkLabel="All history">
+                    {recentSessions.loading ? <div className="p-4"><Skeleton className="h-24" /></div> : !recentSessions.data?.length ? (
+                      <p className="px-4 py-6 text-sm text-muted">No conversations yet. Questions you ask will appear here.</p>
+                    ) : (
+                      <ul className="divide-y divide-line">
+                        {recentSessions.data.slice(0, 5).map((s) => (
+                          <li key={s.session_id}>
+                            <a href={`#/ask/${s.session_id}`} className="flex items-center gap-3 px-4 py-2.5 hover:bg-subtle">
+                              <MessageSquareText className="h-4 w-4 shrink-0 text-faint" aria-hidden="true" />
+                              <span className="min-w-0 flex-1 truncate text-sm">{s.title || "Untitled"}</span>
+                              <span className="shrink-0 text-xs text-muted">{timeAgo(s.updated_at)}</span>
+                            </a>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </OverviewSection>
+  
+                  <OverviewSection title="Recently updated documents" href="#/documents" linkLabel="All documents">
+                    {docs.loading ? <div className="p-4"><Skeleton className="h-24" /></div> : !allDocs.length ? (
+                      <p className="px-4 py-6 text-sm text-muted">No documents yet. <a className="link" href="#/documents?upload=1">Upload a PDF</a> to start.</p>
+                    ) : (
+                      <ul className="divide-y divide-line">
+                        {allDocs.slice(0, 5).map((d) => (
+                          <li key={d.id}>
+                            <a href={`#/documents/${d.id}`} className="flex items-center gap-3 px-4 py-2.5 hover:bg-subtle">
+                              <FileText className="h-4 w-4 shrink-0 text-faint" aria-hidden="true" />
+                              <span className="min-w-0 flex-1">
+                                <span className="block truncate text-sm">{d.title}</span>
+                                <span className="block text-xs text-muted">{d.version ? `v${d.version} · ` : ""}{d.category}</span>
+                              </span>
+                              <ApprovalBadge status={d.approval_status} />
+                            </a>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </OverviewSection>
+                </div>
               </div>
-            </div>
-          )}
-
-          {messages.map((m, i) => {
-            if (m.role === "user") return <UserMessage key={m.id} text={m.text} attachment={m.attachment} />;
-            if (m.role === "answer") return <AnswerMessage key={m.id} msg={m} question={lastQuestion(i)} />;
-            if (m.role === "image") return <ImageAnswer key={m.id} msg={m} />;
-            if (m.role === "system") return <SystemNote key={m.id}>{m.text}</SystemNote>;
-            if (m.role === "error") return <ErrorMessage key={m.id} msg={m} onRetry={() => retry(m)} />;
-            return null;
-          })}
-
-          {busy && !uploadStatus && (
-            <div className="space-y-2" role="status" aria-label="Searching documents">
-              <p className="text-xs text-muted">Searching your documents...</p>
-              <Skeleton className="h-4 w-11/12" /><Skeleton className="h-4 w-10/12" /><Skeleton className="h-4 w-7/12" />
-            </div>
-          )}
-          <div ref={bottomRef} />
-        </div>
-      </div>
-
-      <div className="px-4 pb-4 pt-2 sm:px-6">
-        <div className="mx-auto w-full max-w-3xl">
-          {scopeNote}
-          {composer}
-          <p className="mt-2 text-center text-2xs text-muted">
-            Answers are based on your uploaded documents. Verify safety-critical steps with your lab supervisor.
-            {health && !health.llm.enabled && (
-              <span title="Set ANTHROPIC_API_KEY on the server to enable generated answers and image reading"> Offline mode: answers quote your documents directly.</span>
             )}
-          </p>
+  
+            {messages.map((m, i) => {
+              if (m.role === "user") return <UserMessage key={m.id} text={m.text} attachment={m.attachment} />;
+              if (m.role === "answer") return <AnswerMessage key={m.id} msg={m} question={lastQuestion(i)} />;
+              if (m.role === "image") return <ImageAnswer key={m.id} msg={m} />;
+              if (m.role === "system") return <SystemNote key={m.id}>{m.text}</SystemNote>;
+              if (m.role === "error") return <ErrorMessage key={m.id} msg={m} onRetry={() => retry(m)} />;
+              return null;
+            })}
+  
+            {busy && !uploadStatus && (
+              <div className="space-y-2" role="status" aria-label="Searching documents">
+                <p className="text-xs text-muted">Searching your documents...</p>
+                <Skeleton className="h-4 w-11/12" /><Skeleton className="h-4 w-10/12" /><Skeleton className="h-4 w-7/12" />
+              </div>
+            )}
+            <div ref={bottomRef} />
+          </div>
+        </div>
+  
+        <div className="px-4 pb-4 pt-2 sm:px-6">
+          <div className="mx-auto w-full max-w-3xl">
+            {scopeNote}
+            {composer}
+            <p className="mt-2 text-center text-2xs text-muted">
+              Answers are based on your uploaded documents. Verify safety-critical steps with your lab supervisor.
+              {health && !health.llm.enabled && (
+                <span title="Set ANTHROPIC_API_KEY on the server to enable generated answers and image reading"> Offline mode: answers quote your documents directly.</span>
+              )}
+            </p>
+          </div>
         </div>
       </div>
+      {!empty && !evidence && (
+        <ThreadPanel messages={messages} disabled={busy || offline} onAsk={submit}
+          onUploadFile={() => pdfInputRef.current?.click()} onUploadMedia={() => imageInputRef.current?.click()} />
+      )}
       {imageInput}
       <HistoryDrawer open={historyOpen} onClose={() => setHistoryOpen(false)} current={sessionId} />
     </div>

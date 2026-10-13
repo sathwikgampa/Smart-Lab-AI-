@@ -76,7 +76,7 @@ export function CitationsToggle() {
     <button type="button" role="switch" aria-checked={citationsOn} onClick={() => setCitationsOn(!citationsOn)}
       title={citationsOn ? "Sources are shown with answers" : "Sources are collapsed under answers"}
       className="flex h-8 shrink-0 items-center gap-2 rounded-full px-2 text-[0.8125rem] font-medium text-ink hover:bg-subtle">
-      <span className={citationsOn ? "text-accent-strong" : "text-muted"}>Citations</span>
+      <span className={`sr-only sm:not-sr-only ${citationsOn ? "text-accent-strong" : "text-muted"}`}>Citations</span>
       <span className="switch" aria-hidden="true"><span className="switch-knob" /></span>
     </button>
   );

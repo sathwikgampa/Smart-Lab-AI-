@@ -80,17 +80,27 @@ function Shell({ route }) {
 // Public pages render outside the app shell. "" is the landing page at "/".
 const LandingPage = lazy(() => import("./site/LandingPage"));
 const StaticPage = lazy(() => import("./site/StaticPage"));
+const AuthPages = {
+  login: lazy(() => import("./site/AuthPages").then((m) => ({ default: m.LoginPage }))),
+  signup: lazy(() => import("./site/AuthPages").then((m) => ({ default: m.SignupPage }))),
+  forgot: lazy(() => import("./site/AuthPages").then((m) => ({ default: m.ForgotPasswordPage }))),
+  reset: lazy(() => import("./site/AuthPages").then((m) => ({ default: m.ResetPasswordPage }))),
+};
 const PUBLIC = {
   "": () => <LandingPage />,
   privacy: () => <StaticPage page="privacy" />,
   terms: () => <StaticPage page="terms" />,
   contact: () => <StaticPage page="contact" />,
+  login: (route) => <AuthPages.login route={route} />,
+  signup: () => <AuthPages.signup />,
+  "forgot-password": () => <AuthPages.forgot />,
+  "reset-password": (route) => <AuthPages.reset route={route} />,
 };
 
 function Root() {
   const route = useRoute();
   const Public = PUBLIC[route.path[0] ?? ""];
-  if (Public) return <Suspense fallback={<div className="min-h-full bg-page" />}><Public /></Suspense>;
+  if (Public) return <Suspense fallback={<div className="min-h-full bg-page" />}>{Public(route)}</Suspense>;
   return <Shell route={route} />;
 }
 

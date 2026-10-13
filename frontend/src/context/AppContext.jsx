@@ -32,6 +32,8 @@ export function AppProvider({ children }) {
   const [evidence, setEvidence] = useState(null); // { citations: [...], active: n }
   const [confirmState, setConfirmState] = useState(null);
   const [currentUser] = useState({ id: 3, name: "Priya Raman", role: "Research Associate" });
+  // Signed-in account: undefined while checking, null when signed out.
+  const [account, setAccount] = useState(undefined);
   // Shared between the top bar and the Ask view.
   const [askScope, setAskScope] = useState(null); // {id, title}: answer from one document only
   const [threadTitle, setThreadTitle] = useState(null);
@@ -86,7 +88,8 @@ export function AppProvider({ children }) {
   const value = useMemo(() => ({
     toast, confirm, health, healthError, connected, refreshHealth, evidence, openEvidence, closeEvidence, currentUser,
     askScope, setAskScope, threadTitle, setThreadTitle, answerMode, setAnswerMode, citationsOn, setCitationsOn,
-  }), [toast, confirm, health, healthError, connected, refreshHealth, evidence, openEvidence, closeEvidence, currentUser,
+    account, setAccount,
+  }), [account, toast, confirm, health, healthError, connected, refreshHealth, evidence, openEvidence, closeEvidence, currentUser,
     askScope, threadTitle, answerMode, setAnswerMode, citationsOn, setCitationsOn]);
 
   return (

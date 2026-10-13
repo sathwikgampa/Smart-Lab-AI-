@@ -77,6 +77,14 @@ export const api = {
   // Background status check: failures update the indicator only, never a toast.
   health: () => request("/api/health", { quiet: true }),
 
+  // Authentication (session cookie set by the server; credentials never stored client-side)
+  me: () => request("/api/auth/me", { quiet: true }),
+  login: (email, password) => request("/api/auth/login", { method: "POST", body: { email, password } }),
+  signup: (payload) => request("/api/auth/signup", { method: "POST", body: payload }),
+  logout: () => request("/api/auth/logout", { method: "POST" }),
+  forgotPassword: (email) => request("/api/auth/forgot-password", { method: "POST", body: { email } }),
+  resetPassword: (token, password) => request("/api/auth/reset-password", { method: "POST", body: { token, password } }),
+
   // Documents
   documents: (params = {}) => request(`/api/documents${qs(params)}`),
   documentFacets: () => request("/api/documents/facets"),

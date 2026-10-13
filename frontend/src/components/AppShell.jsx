@@ -8,6 +8,7 @@ import { api } from "../lib/api";
 import { navigate } from "../lib/router";
 import { Floating, MenuButton, useDismiss, useMenuKeys } from "./Popover";
 import { Dialog, Field } from "./ui";
+import { SkipLink } from "../site/SiteChrome";
 
 /* ----------------------------------------------------------------- navigation model */
 export const MAIN_NAV = [
@@ -350,13 +351,13 @@ export default function AppShell({ current, route, title, children, aside }) {
   useEffect(() => { document.title = title ? `${title} · SmartLab AI` : "SmartLab AI"; }, [title]);
   return (
     <div className="h-full p-0 sm:p-3 lg:p-4">
-      <a href="#main" className="sr-only focus:not-sr-only focus:fixed focus:left-2 focus:top-2 focus:z-[70] focus:rounded focus:bg-surface focus:px-3 focus:py-2">Skip to content</a>
+      <SkipLink target="main" />
       <div className="flex h-full overflow-hidden border-line bg-surface shadow-panel sm:rounded-frame sm:border">
         <Rail current={current} />
         <div className="flex min-w-0 flex-1 flex-col">
           <TopBar current={current} route={route} label={title} />
           <div className="flex min-h-0 flex-1 bg-canvas">
-            <main id="main" className="min-w-0 flex-1 overflow-y-auto">{children}</main>
+            <main id="main" tabIndex={-1} className="min-w-0 flex-1 overflow-y-auto outline-none">{children}</main>
             {aside}
           </div>
         </div>

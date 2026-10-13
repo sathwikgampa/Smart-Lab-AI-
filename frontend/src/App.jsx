@@ -3,7 +3,7 @@ import { AppProvider, useApp } from "./context/AppContext";
 import AppShell, { ALL_NAV } from "./components/AppShell";
 import EvidencePanel from "./components/EvidencePanel";
 import { Drawer, Page, SkeletonRows } from "./components/ui";
-import { navigate, useRoute } from "./lib/router";
+import { useRoute } from "./lib/router";
 
 // Overview (home) and Ask share one component instance so a question asked on the home page
 // continues in place when the URL changes to its thread.
@@ -38,15 +38,11 @@ function useIsWide() {
   return wide;
 }
 
-function Shell() {
-  const route = useRoute();
+function Shell({ route }) {
   const { evidence, closeEvidence } = useApp();
   const wide = useIsWide();
   const id = VIEWS[route.path[0]] ? route.path[0] : null;
 
-  useEffect(() => {
-    if (!route.path.length) navigate("overview", { replace: true });
-  }, [route.path]);
   // A source belongs to the page/conversation it was opened from; close it when that changes.
   const routeKey = route.path.join("/");
   const lastKey = useRef(routeKey);
@@ -81,10 +77,27 @@ function Shell() {
   );
 }
 
+// Public pages render outside the app shell. "" is the landing page at "/".
+const LandingPage = lazy(() => import("./site/LandingPage"));
+const StaticPage = lazy(() => import("./site/StaticPage"));
+const PUBLIC = {
+  "": () => <LandingPage />,
+  privacy: () => <StaticPage page="privacy" />,
+  terms: () => <StaticPage page="terms" />,
+  contact: () => <StaticPage page="contact" />,
+};
+
+function Root() {
+  const route = useRoute();
+  const Public = PUBLIC[route.path[0] ?? ""];
+  if (Public) return <Suspense fallback={<div className="min-h-full bg-page" />}><Public /></Suspense>;
+  return <Shell route={route} />;
+}
+
 export default function App() {
   return (
     <AppProvider>
-      <Shell />
+      <Root />
     </AppProvider>
   );
 }

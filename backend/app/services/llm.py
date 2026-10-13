@@ -48,10 +48,18 @@ class ClaudeClient:
         return self._client
 
     def _create(self, *, system: str, content: list[dict[str, Any]], max_tokens: int,
-                output_format: dict[str, Any] | None = None) -> str:
+                output_format: dict[str, Any] | None = None, max_retries: int | None = None,
+                timeout: float | None = None) -> str:
         import anthropic
 
         client = self._get_client()
+        overrides: dict[str, Any] = {}
+        if max_retries is not None:
+            overrides["max_retries"] = max_retries
+        if timeout is not None:
+            overrides["timeout"] = timeout
+        if overrides:
+            client = client.with_options(**overrides)
         output_config: dict[str, Any] = {"effort": self.effort}
         if output_format is not None:
             output_config["format"] = output_format
@@ -75,6 +83,8 @@ class ClaudeClient:
         except anthropic.APIStatusError as exc:
             logger.warning("Claude API error %s: %s", exc.status_code, exc.message)
             raise LLMUnavailable(f"Claude API error ({exc.status_code}).") from exc
+        except anthropic.APITimeoutError as exc:
+            raise LLMUnavailable("The Claude API timed out.") from exc
         except anthropic.APIConnectionError as exc:
             raise LLMUnavailable("Could not reach the Claude API.") from exc
 
@@ -91,12 +101,17 @@ class ClaudeClient:
         return self._create(system=system, content=[{"type": "text", "text": prompt}], max_tokens=max_tokens)
 
     def complete_json(self, system: str, content: list[dict[str, Any]], schema: dict[str, Any],
-                      max_tokens: int = 16000) -> dict[str, Any]:
+                      max_tokens: int = 16000, *, max_retries: int | None = None,
+                      timeout: float | None = None) -> dict[str, Any]:
+        """Structured output. ``max_retries``/``timeout`` override the client defaults for this call
+        (the lab co-pilot passes ``max_retries=0`` so every attempt counts against its call budget)."""
         text = self._create(
             system=system,
             content=content,
             max_tokens=max_tokens,
             output_format={"type": "json_schema", "schema": schema},
+            max_retries=max_retries,
+            timeout=timeout,
         )
         try:
             return json.loads(text)

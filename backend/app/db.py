@@ -39,6 +39,7 @@ CREATE TABLE IF NOT EXISTS documents (
     owner TEXT,
     approval_status TEXT NOT NULL DEFAULT 'unreviewed',
     reviewed_at TEXT,
+    organization_id INTEGER NOT NULL DEFAULT 1,
     uploaded_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -67,7 +68,9 @@ CREATE TABLE IF NOT EXISTS reagents (
     hazard_class TEXT,
     expiry_date TEXT,
     supplier TEXT,
-    notes TEXT
+    notes TEXT,
+    compound_key TEXT,
+    organization_id INTEGER NOT NULL DEFAULT 1
 );
 
 CREATE TABLE IF NOT EXISTS troubleshooting (
@@ -80,7 +83,10 @@ CREATE TABLE IF NOT EXISTS troubleshooting (
     fix TEXT NOT NULL,
     source_document TEXT,
     source_page INTEGER,
-    verified INTEGER NOT NULL DEFAULT 1
+    verified INTEGER NOT NULL DEFAULT 1,
+    machine_model TEXT,
+    ppe_warning TEXT,
+    organization_id INTEGER NOT NULL DEFAULT 1
 );
 
 CREATE TABLE IF NOT EXISTS profiles (
@@ -224,9 +230,60 @@ CREATE TABLE IF NOT EXISTS settings (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
 );
+
+-- Compound reference data used by the lab co-pilot's calculator and name resolver.
+-- Shared across organisations (molecular weights do not depend on who owns the stock).
+CREATE TABLE IF NOT EXISTS compounds (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    compound_key TEXT NOT NULL UNIQUE,
+    display_name TEXT NOT NULL,
+    molecular_weight REAL,
+    cas_number TEXT,
+    synonyms TEXT NOT NULL DEFAULT ''
+);
+
+-- Images uploaded to the lab co-pilot. Tools only ever see ``upload_id``; the file name on disk
+-- is server-generated, and the display text read from the image is stored at upload time.
+CREATE TABLE IF NOT EXISTS agent_uploads (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    upload_id TEXT NOT NULL UNIQUE,
+    organization_id INTEGER NOT NULL DEFAULT 1,
+    stored_name TEXT NOT NULL,
+    mime_type TEXT NOT NULL,
+    size_bytes INTEGER NOT NULL,
+    equipment_type TEXT,
+    observed_text_json TEXT NOT NULL DEFAULT '[]',
+    extracted_codes_json TEXT NOT NULL DEFAULT '[]',
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- Audit record of every lab co-pilot run (no secrets; tool calls are summarised).
+-- user_id stays NULL until authentication exists (TODO(auth)).
+CREATE TABLE IF NOT EXISTS agent_runs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    request_id TEXT NOT NULL UNIQUE,
+    organization_id INTEGER NOT NULL DEFAULT 1,
+    user_id TEXT,
+    session_id TEXT,
+    question TEXT NOT NULL,
+    intent TEXT,
+    status TEXT NOT NULL,
+    confidence REAL NOT NULL DEFAULT 0,
+    uncertainty_flag INTEGER NOT NULL DEFAULT 0,
+    blockers_json TEXT NOT NULL DEFAULT '[]',
+    tools_json TEXT NOT NULL DEFAULT '[]',
+    citations_json TEXT NOT NULL DEFAULT '[]',
+    llm_calls INTEGER NOT NULL DEFAULT 0,
+    duration_ms INTEGER NOT NULL DEFAULT 0,
+    started_at TEXT NOT NULL,
+    finished_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_agent_runs_org ON agent_runs(organization_id, id);
 """
 
 # Columns added after the first release; added to existing databases on start-up.
+# organization_id: there is no authentication yet, so every row belongs to the default organisation (1).
+# TODO(auth): set organization_id from the signed-in user's organisation when auth is added.
 MIGRATIONS = {
     "documents": {
         "category": "TEXT NOT NULL DEFAULT 'General'",
@@ -236,8 +293,18 @@ MIGRATIONS = {
         "approval_status": "TEXT NOT NULL DEFAULT 'unreviewed'",
         "reviewed_at": "TEXT",
         "updated_at": "TEXT",
+        "organization_id": "INTEGER NOT NULL DEFAULT 1",
     },
-    "reagents": {"category": "TEXT"},
+    "reagents": {
+        "category": "TEXT",
+        "compound_key": "TEXT",
+        "organization_id": "INTEGER NOT NULL DEFAULT 1",
+    },
+    "troubleshooting": {
+        "machine_model": "TEXT",
+        "ppe_warning": "TEXT",
+        "organization_id": "INTEGER NOT NULL DEFAULT 1",
+    },
 }
 
 
@@ -526,6 +593,21 @@ def connect(target: Path | str) -> sqlite3.Connection | PgConnection:
     conn = sqlite3.connect(str(target), detect_types=sqlite3.PARSE_DECLTYPES, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
+    return conn
+
+
+def connect_readonly(target: Path | str, pool: PgPool | None = None) -> sqlite3.Connection | PgConnection:
+    """Open a connection that the database itself refuses to write through.
+
+    SQLite opens the file with ``mode=ro``; PostgreSQL marks the transaction ``READ ONLY`` (the
+    connection is closed or rolled back by the caller, which ends that transaction).
+    """
+    if isinstance(target, str) and is_postgres_url(target):
+        conn = pool.connect() if pool is not None else PgConnection(_connect_raw(target))
+        conn.execute("SET TRANSACTION READ ONLY")
+        return conn
+    conn = sqlite3.connect(f"{Path(target).resolve().as_uri()}?mode=ro", uri=True, check_same_thread=False)
+    conn.row_factory = sqlite3.Row
     return conn
 
 

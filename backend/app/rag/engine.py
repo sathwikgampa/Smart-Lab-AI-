@@ -190,16 +190,26 @@ class RAGEngine:
 
     # ----------------------------------------------------------------- retrieval
     def retrieve(self, conn: sqlite3.Connection, query: str, k: int | None = None,
-                 document_ids: list[int] | None = None) -> list[Evidence]:
+                 document_ids: list[int] | None = None, organization_id: int | None = None) -> list[Evidence]:
+        """Top-k chunks for ``query``. ``document_ids`` and ``organization_id`` restrict the search space
+        before ranking, so out-of-scope chunks can never be returned."""
         query = (query or "").strip()
         if not query:
             return []
         k = k or self.top_k
         allowed = None
-        if document_ids:
-            placeholders = ",".join("?" * len(document_ids))
-            allowed = {r[0] for r in conn.execute(
-                f"SELECT id FROM chunks WHERE document_id IN ({placeholders})", list(document_ids))}
+        if document_ids or organization_id is not None:
+            sql = "SELECT c.id FROM chunks c JOIN documents d ON d.id = c.document_id WHERE 1=1"
+            params: list[Any] = []
+            if document_ids:
+                sql += f" AND c.document_id IN ({','.join('?' * len(document_ids))})"
+                params += list(document_ids)
+            if organization_id is not None:
+                sql += " AND d.organization_id = ?"
+                params.append(organization_id)
+            allowed = {r[0] for r in conn.execute(sql, params)}
+            if not allowed:
+                return []
         hits = self.store.search(self.embedder.embed([query])[0], k * 3, allowed)
         if not hits:
             return []

@@ -20,7 +20,7 @@ def extract_error_codes(text: str) -> list[str]:
     return sorted({f"{a}-{b}" for a, b in ERROR_CODE.findall((text or "").upper())})
 
 
-def _normalise_code(code: str | None) -> str | None:
+def normalise_code(code: str | None) -> str | None:
     if not code:
         return None
     m = ERROR_CODE.search(code.upper())
@@ -36,7 +36,7 @@ def match(conn: sqlite3.Connection, query: str, limit: int = 5, include_unverifi
         entry = dict(row)
         score = 0.0
         reasons = []
-        if codes and _normalise_code(entry["error_code"]) in codes:
+        if codes and normalise_code(entry["error_code"]) in codes:
             score += 1.0
             reasons.append(f"error code {entry['error_code']}")
         kw_terms = set(tokenize(entry["keywords"].replace(",", " ")))

@@ -63,6 +63,58 @@ function upload(path, fields, { onProgress, signal } = {}) {
   });
 }
 
+/**
+ * POST a JSON body to a Server-Sent Events endpoint. Each `trace` event is passed to
+ * `onEvent(name, payload)` as it arrives; the promise resolves with the final `result`
+ * payload and rejects on an `error` event (the server sends a generic message only).
+ */
+async function stream(path, body, { onEvent, signal } = {}) {
+  let res;
+  try {
+    res = await fetch(`${BASE}${path}`, {
+      method: "POST", signal, body: JSON.stringify(body),
+      headers: { "Content-Type": "application/json", Accept: "text/event-stream" },
+    });
+  } catch (err) {
+    if (err.name === "AbortError") throw err;
+    broadcast(false);
+    throw apiError(UNREACHABLE, 0);
+  }
+  if (!res.ok) {
+    const isJson = res.headers.get("content-type")?.includes("application/json");
+    const data = isJson ? await res.json() : null;
+    if (!isJson && res.status >= 500) { broadcast(false); throw apiError(UNREACHABLE, 0); }
+    throw apiError(data?.error || `Request failed (${res.status})`, res.status, data);
+  }
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let result = null;
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true }).replace(/\r\n/g, "\n");
+    let cut;
+    while ((cut = buffer.indexOf("\n\n")) !== -1) {
+      const block = buffer.slice(0, cut);
+      buffer = buffer.slice(cut + 2);
+      let event = "message";
+      const lines = [];
+      for (const line of block.split("\n")) {
+        if (line.startsWith("event:")) event = line.slice(6).trim();
+        else if (line.startsWith("data:")) lines.push(line.slice(5).trimStart());
+      }
+      if (!lines.length) continue; // comment or keep-alive
+      const payload = JSON.parse(lines.join("\n"));
+      if (event === "error") throw apiError(payload.error || "The co-pilot could not complete this request.", 500, payload);
+      if (event === "result") result = payload;
+      else onEvent?.(event, payload);
+    }
+  }
+  if (!result) throw apiError("The response ended before the answer arrived. Please try again.", 0);
+  return result;
+}
+
 export const qs = (params) => {
   const s = new URLSearchParams();
   Object.entries(params).forEach(([k, v]) => {
@@ -91,8 +143,14 @@ export const api = {
   documentFileUrl: (id) => `${BASE}/api/documents/${id}/file`,
 
   // Conversations
-  chat: (question, sessionId, documentIds) =>
-    request("/api/chat", { method: "POST", body: { question, session_id: sessionId, document_ids: documentIds } }),
+  chat: (question, sessionId, documentIds, extra = {}) =>
+    request("/api/chat", { method: "POST", body: { question, session_id: sessionId, document_ids: documentIds, ...extra } }),
+  // Lab co-pilot: the same run as chat(), streamed. extra = { upload_id, error_code }.
+  chatStream: (question, sessionId, documentIds, extra = {}, opts) =>
+    stream("/api/chat/stream", { question, session_id: sessionId, document_ids: documentIds, ...extra }, opts),
+  agentUpload: (image, opts) => upload("/api/agent/uploads", { image }, opts),
+  agentInfo: () => request("/api/agent/info"),
+  agentRuns: (limit = 50) => request(`/api/agent/runs${qs({ limit })}`),
   sessions: (limit = 20) => request(`/api/chat/sessions${qs({ limit })}`),
   session: (id) => request(`/api/chat/${encodeURIComponent(id)}`),
   deleteSession: (id) => request(`/api/chat/${encodeURIComponent(id)}`, { method: "DELETE" }),

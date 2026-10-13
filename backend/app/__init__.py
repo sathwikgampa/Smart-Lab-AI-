@@ -46,10 +46,13 @@ def create_app(config_object: type[Config] | Config = Config, **overrides) -> Fl
         init_schema(conn)
         rag.ensure_index(conn)
         if app.config["SEED_DEMO_DATA"]:
-            from .seed import seed_documents, seed_records
+            from .seed import seed_agent_demo, seed_compounds, seed_documents, seed_records
 
             seed_records(conn)
+            seed_compounds(conn)
             seed_documents(conn, rag, app.config["UPLOAD_DIR"], app.config["MAX_CONTENT_LENGTH"])
+            if app.config.get("SEED_AGENT_DEMO", True):
+                seed_agent_demo(conn, rag, app.config["UPLOAD_DIR"], app.config["MAX_CONTENT_LENGTH"])
     finally:
         conn.close()
 
@@ -78,10 +81,10 @@ def create_app(config_object: type[Config] | Config = Config, **overrides) -> Fl
 
 
 def _register_blueprints(app: Flask) -> None:
-    from .api import (chat, collaboration, data, documents, experiments, literature, profiles, reagents,
+    from .api import (agent, chat, collaboration, data, documents, experiments, literature, profiles, reagents,
                       safety, search, simulation, troubleshooting, vision)
 
-    for module in (chat, collaboration, data, documents, experiments, literature, profiles, reagents,
+    for module in (agent, chat, collaboration, data, documents, experiments, literature, profiles, reagents,
                    safety, search, simulation, troubleshooting, vision):
         app.register_blueprint(module.bp)
 

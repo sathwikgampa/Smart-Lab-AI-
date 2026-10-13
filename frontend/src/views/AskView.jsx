@@ -11,6 +11,7 @@ import { navigate } from "../lib/router";
 import Composer, { ATTACH_ACCEPT, checkAttachment, makeAttachment } from "../components/Composer";
 import SmartLabOrb from "../components/SmartLabOrb";
 import { AnswerMessage, ErrorMessage, ImageAnswer, SystemNote, UserMessage } from "../components/Answer";
+import CopilotAnswer, { AgentTrace, ConfirmCodeCard, DECISION_SUPPORT_NOTE } from "../components/CopilotAnswer";
 import { ApprovalBadge, Drawer, EmptyState, Skeleton, SkeletonRows, useAsync } from "../components/ui";
 
 const STARTERS = [
@@ -27,6 +28,10 @@ function fromHistory(rows) {
   return rows.map((r) => {
     if (r.role === "user") return { id: r.id, role: "user", text: r.content, attachment: r.meta?.attachment ?? null };
     if (r.meta?.kind === "image") return { id: r.id, role: "image", vision: r.meta.vision, message_id: r.id, feedback: r.feedback };
+    // Lab co-pilot runs store their structured result in meta (request_id marks them).
+    if (r.meta?.request_id) {
+      return { id: r.id, role: "copilot", message_id: r.id, response: r.content, citations: r.citations, feedback: r.feedback, ...r.meta };
+    }
     return { id: r.id, role: "answer", message_id: r.id, answer: r.content, citations: r.citations, feedback: r.feedback, ...r.meta };
   });
 }
@@ -165,6 +170,8 @@ export default function AskView({ route }) {
   const [uploadStatus, setUploadStatus] = useState(null);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [promptFocused, setPromptFocused] = useState(false);
+  const [liveTrace, setLiveTrace] = useState(null); // trace steps streamed while the co-pilot works
+  const agentInfo = useAsync(() => api.agentInfo().catch(() => null), []);
   const bottomRef = useRef(null);
   const ownSession = useRef(null); // session created in this view; don't reload it from the server
   const imageInputRef = useRef(null);
@@ -218,7 +225,7 @@ export default function AskView({ route }) {
 
   const push = (m) => setMessages((all) => [...all, { id: `${Date.now()}-${Math.random()}`, ...m }]);
 
-  const run = useCallback(async ({ question, att, docScope }) => {
+  const run = useCallback(async ({ question, att, docScope, uploadId, errorCode }) => {
     setBusy(true);
     const sid = ensureSession();
     let targetScope = docScope;
@@ -241,24 +248,34 @@ export default function AskView({ route }) {
         if (!question) return;
       }
       if (att?.kind === "image") {
+        // The image is stored under a server-generated name and the display is read once; the co-pilot only
+        // ever sees the returned upload_id. A code read from the image is never acted on until confirmed.
+        const progress = (p) => setUploadStatus(p >= 1 ? { phase: "processing" } : { phase: "uploading", progress: p });
         setUploadStatus({ phase: "uploading", progress: 0 });
-        const vision = await api.analyzeImage(att.file, question, {
-          onProgress: (p) => setUploadStatus(p >= 1 ? { phase: "processing" } : { phase: "uploading", progress: p }),
-        });
-        const saved = await api.recordExchange(sid, {
-          question, answer: vision.analysis.visual_description, citations: vision.sop_matches,
-          attachment: { name: att.name, kind: "image" }, meta: { kind: "image", vision },
-        }).catch(() => null);
-        push({ role: "image", vision, message_id: saved?.message_id });
+        const up = await api.agentUpload(att.file, { onProgress: progress });
+        if (!up.extracted_code) {
+          // No code on a display: keep the observational image analysis, then offer manual code entry.
+          const vision = await api.analyzeImage(att.file, question, { onProgress: progress });
+          const saved = await api.recordExchange(sid, {
+            question, answer: vision.analysis.visual_description, citations: vision.sop_matches,
+            attachment: { name: att.name, kind: "image" }, meta: { kind: "image", vision },
+          }).catch(() => null);
+          push({ role: "image", vision, message_id: saved?.message_id });
+        }
+        push({ role: "confirm", upload: up, question });
         return;
       }
-      const res = await api.chat(question, sid, targetScope ? [targetScope.id] : undefined);
-      push({ role: "answer", ...res });
+      setLiveTrace([]);
+      const res = await api.chatStream(question, sid, targetScope ? [targetScope.id] : undefined,
+        { upload_id: uploadId, error_code: errorCode },
+        { onEvent: (kind, step) => kind === "trace" && setLiveTrace((t) => [...(t ?? []), step]) });
+      push({ role: "copilot", ...res });
     } catch (err) {
-      push({ role: "error", error: err.message, retry: { question, att, docScope: targetScope } });
+      push({ role: "error", error: err.message, retry: { question, att, docScope: targetScope, uploadId, errorCode } });
     } finally {
       setBusy(false);
       setUploadStatus(null);
+      setLiveTrace(null);
     }
   }, [sessionId]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -267,6 +284,13 @@ export default function AskView({ route }) {
     push({ role: "user", text: question, attachment: att ? { name: att.name, kind: att.kind, previewUrl: att.previewUrl } : null });
     setAttachment(null);
     run({ question, att, docScope: scope });
+  };
+
+  const confirmCode = (msg, code) => {
+    setMessages((all) => all.map((m) => (m === msg ? { ...m, confirmed: code } : m)));
+    push({ role: "user", text: `Confirmed code ${code}` });
+    const base = (msg.question || "What does this error mean and how do I fix it?").slice(0, 1900);
+    run({ question: `${base} (confirmed display code ${code})`, docScope: scope, uploadId: msg.upload.upload_id, errorCode: code });
   };
 
   const retry = (msg) => {
@@ -319,7 +343,7 @@ export default function AskView({ route }) {
       onAttach={(f) => setAttachment(makeAttachment(f))} onRemoveAttachment={() => setAttachment(null)}
       maxMB={health?.max_upload_mb ?? 25} onAction={onAction} showUploadDot={noDocuments}
       onFocusChange={setPromptFocused}
-      placeholder={attachment?.kind === "image" ? "What would you like to know about this image?" : "Ask about a procedure, document, experiment, or reagent..."}
+      placeholder={attachment?.kind === "image" ? "What does this instrument display mean?" : "Ask about a procedure, a buffer to prepare, an error code, or a reagent..."}
       onSubmit={submit} />
   );
   const scopeNote = scope && (
@@ -465,6 +489,8 @@ export default function AskView({ route }) {
   
             {messages.map((m, i) => {
               if (m.role === "user") return <UserMessage key={m.id} text={m.text} attachment={m.attachment} />;
+              if (m.role === "copilot") return <CopilotAnswer key={m.id} msg={m} demo={!!agentInfo.data?.demo_data} />;
+              if (m.role === "confirm") return <ConfirmCodeCard key={m.id} msg={m} onConfirm={confirmCode} disabled={busy || offline} />;
               if (m.role === "answer") return <AnswerMessage key={m.id} msg={m} question={lastQuestion(i)} />;
               if (m.role === "image") return <ImageAnswer key={m.id} msg={m} />;
               if (m.role === "system") return <SystemNote key={m.id}>{m.text}</SystemNote>;
@@ -472,12 +498,17 @@ export default function AskView({ route }) {
               return null;
             })}
   
-            {busy && !uploadStatus && (
+            {busy && !uploadStatus && (liveTrace ? (
+              <div className="space-y-2" role="status" aria-label="Working on your question">
+                <p className="text-xs text-muted">Checking your SOPs, inventory and calculations...</p>
+                <AgentTrace steps={liveTrace} live />
+              </div>
+            ) : (
               <div className="space-y-2" role="status" aria-label="Searching documents">
                 <p className="text-xs text-muted">Searching your documents...</p>
                 <Skeleton className="h-4 w-11/12" /><Skeleton className="h-4 w-10/12" /><Skeleton className="h-4 w-7/12" />
               </div>
-            )}
+            ))}
             <div ref={bottomRef} />
           </div>
         </div>
@@ -487,7 +518,7 @@ export default function AskView({ route }) {
             {scopeNote}
             {composer}
             <p className="mt-2 text-center text-2xs text-muted">
-              Answers are based on your uploaded documents. Verify safety-critical steps with your lab supervisor.
+              {DECISION_SUPPORT_NOTE}
               {health && !health.llm.enabled && (
                 <span title="Set ANTHROPIC_API_KEY on the server to enable generated answers and image reading"> Offline mode: answers quote your documents directly.</span>
               )}

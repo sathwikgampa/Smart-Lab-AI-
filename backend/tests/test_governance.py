@@ -72,7 +72,7 @@ def test_reindex_rebuilds_chunks(client, conn):
     new = {r[0] for r in conn.execute("SELECT id FROM chunks WHERE document_id = ?", (doc["id"],))}
     assert new and not (old & new)
     answer = client.post("/api/chat", json={"question": "What does error E-104 mean?"}).get_json()
-    assert answer["citations"][0]["chunk_id"] in new
+    assert answer["citations"][0]["chunk_db_id"] in new  # chunk_id is now the "chunk-N" reference
     assert client.post("/api/documents/9999/reindex").status_code == 404
 
 

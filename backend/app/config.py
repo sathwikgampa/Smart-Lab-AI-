@@ -130,8 +130,23 @@ class Config:
     LITERATURE_ONLINE = _env_bool("SMARTLAB_LITERATURE_ONLINE", True)
     LITERATURE_TIMEOUT = float(os.getenv("SMARTLAB_LITERATURE_TIMEOUT", "8"))
 
+    # Lab co-pilot (agent) settings.
+    # There is no authentication yet, so every request is scoped to this organisation.
+    # TODO(auth): take the organisation from the signed-in user instead of this default.
+    DEFAULT_ORGANIZATION_ID = int(os.getenv("SMARTLAB_DEFAULT_ORG_ID", "1"))
+    AGENT_TOOL_TIMEOUT_S = float(os.getenv("SMARTLAB_AGENT_TOOL_TIMEOUT_S", "10"))
+    AGENT_TIMEOUT_S = float(os.getenv("SMARTLAB_AGENT_TIMEOUT_S", "90"))  # whole request
+    AGENT_LLM_TIMEOUT_S = float(os.getenv("SMARTLAB_AGENT_LLM_TIMEOUT_S", "60"))  # one model call
+    AGENT_MAX_LLM_CALLS = int(os.getenv("SMARTLAB_AGENT_MAX_LLM_CALLS", "6"))  # including retries
+    AGENT_MAX_QUESTION_CHARS = 2000
+    # Rate limits for /api/chat, /api/chat/stream and /api/agent/uploads (requests per minute per client).
+    AGENT_RATE_LIMIT_PER_MIN = int(os.getenv("SMARTLAB_AGENT_RATE_LIMIT_PER_MIN", "20"))
+    AGENT_UPLOAD_MAX_MB = int(os.getenv("SMARTLAB_AGENT_UPLOAD_MAX_MB", "8"))
+
     CORS_ORIGINS = os.getenv("SMARTLAB_CORS_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173").split(",")
     SEED_DEMO_DATA = _env_bool("SMARTLAB_SEED_DEMO", True)
+    # Lab co-pilot demo SOPs, stock lots and fixes (added only to a database that holds the demo records).
+    SEED_AGENT_DEMO = _env_bool("SMARTLAB_SEED_AGENT_DEMO", True)
     TESTING = False
 
 
@@ -147,3 +162,4 @@ class TestConfig(Config):
     EMBEDDING_BACKEND = "hashing"
     VECTOR_BACKEND = "numpy"
     SEED_DEMO_DATA = True
+    SEED_AGENT_DEMO = False  # the co-pilot scenario tests opt in (tests/test_agent_scenarios.py)

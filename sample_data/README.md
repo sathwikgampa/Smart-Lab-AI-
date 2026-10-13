@@ -20,8 +20,17 @@ sample_data/
     ├── SOP-HPLC-004_HPLC_Operation_and_Troubleshooting.pdf
     ├── SOP-CC-011_Mammalian_Cell_Culture.pdf
     ├── SOP-CEN-002_Benchtop_Centrifuge.pdf
-    └── SOP-SAF-001_Chemical_Spill_and_Exposure.pdf
+    ├── SOP-SAF-001_Chemical_Spill_and_Exposure.pdf
+    ├── SOP-BUF-001_TNE_Buffer_demo.pdf                       # DEMO DATA (lab co-pilot)
+    ├── SOP-BUF-002_Salt_Stock_Solutions_demo.pdf             # DEMO DATA
+    ├── SOP-BUF-003_Tris_Glycine_SDS_Running_Buffer_demo.pdf  # DEMO DATA
+    ├── SOP-DEC-004_Bench_Decontamination_demo.pdf            # DEMO DATA
+    └── SOP-PHM-005_pH_Meter_Error_Codes_demo.pdf             # DEMO DATA
 ```
+
+The `*_demo.pdf` SOPs are original sample procedures written for the lab co-pilot demonstration. They are
+**not approved laboratory procedures**. The server seeds the same content automatically; regenerate the files
+with `python -m app.seed ../sample_data/sops` from `backend/`.
 
 ---
 

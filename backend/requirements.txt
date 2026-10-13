@@ -8,6 +8,8 @@ requests>=2.31
 # PostgreSQL / Supabase driver (used only when SMARTLAB_DATABASE_URL is set)
 psycopg2-binary>=2.9
 anthropic>=1.0
+# Typed, validated tool arguments for the lab co-pilot (also an anthropic dependency)
+pydantic>=2.0
 # Production WSGI server (Linux/macOS: gunicorn; Windows: waitress)
 waitress>=3.0
 

@@ -84,7 +84,7 @@ def rag(app):
 class FakeLLM:
     """Stand-in for :class:`ClaudeClient` that returns scripted responses."""
 
-    def __init__(self, text: str | Callable[[str, str], str] | None = None, json_result: dict | None = None,
+    def __init__(self, text: str | Callable[[str, str], str] | None = None, json_result: dict | Callable[[str, list, dict], dict] | None = None,
                  fail: bool = False):
         self.available = True
         self.model = "fake-model"
@@ -99,10 +99,12 @@ class FakeLLM:
             raise LLMUnavailable("scripted failure")
         return self._text(system, prompt) if callable(self._text) else (self._text or "")
 
-    def complete_json(self, system: str, content: list, schema: dict, max_tokens: int = 16000) -> dict:
+    def complete_json(self, system: str, content: list, schema: dict, max_tokens: int = 16000, **_: Any) -> dict:
         self.calls.append({"system": system, "content": content, "schema": schema})
         if self._fail:
             raise LLMUnavailable("scripted failure")
+        if callable(self._json):
+            return self._json(system, content, schema)
         return dict(self._json or {})
 
     @staticmethod

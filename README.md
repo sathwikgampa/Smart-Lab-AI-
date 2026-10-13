@@ -49,6 +49,57 @@ A light-first interface built around the evidence workflow (design tokens in `fr
 
 ---
 
+## Lab co-pilot (Ask SmartLab)
+
+Ask SmartLab is a guarded, tool-using co-pilot. It is **decision support, not an authority**. When evidence is weak or a check fails, it says so and refuses instead of guessing.
+
+**Flow.** The model plans, chooses tools and words the checklist. Code does everything that decides whether an answer can be trusted (`backend/app/agents/`):
+
+| Request | Steps (each logged in the trace with `duration_ms`) |
+|---|---|
+| Preparation ("Prepare 1 L of 50 mM Tris base...") | Screen → Plan → Retrieve → Calculate → Stock check → Compatibility check → Retrieve procedure → Synthesize → Verify |
+| SOP question | Screen → Plan → Retrieve → Synthesize → Verify |
+| Instrument error | Screen → Plan → Diagnose → Retrieve → Synthesize → Verify |
+| Inventory lookup | Screen → Plan → Stock check |
+
+- **Tools** (`agents/tools.py`) are deterministic and read-only. They run on a read-only database connection with validated arguments and a 10 s timeout, with no file access, shell or network. They are SOP search, the preparation calculator (molecular weight from the reagent database; it refuses when the weight is missing), the inventory check (name and synonym matching, explicit unit conversion, expiry), the compatibility check and the error-code lookup (by `upload_id` only).
+- **Guardrails** (`guardrails.py`):
+  - Every step must cite passages retrieved in this request.
+  - Every number must match the cited passage or the calculator output after normalisation ("1 M" = "1M", "100 mL" = "0.1 L", "8,0" = "8.0").
+  - Unsupported steps are kept and marked `unsupported: true`.
+  - Confidence is computed from retrieval similarity, the share of supported steps and tool outcomes. It never comes from the model's own rating.
+  - Retrieved text containing instructions (prompt injection) is quarantined.
+- **Status:** **supported** means grounded, in stock and no incompatibility. **caution** means non-blocking issues only: an expiring reagent, an unknown pair, low stock, an unapproved source, or no language model. **refused** means a missing, expired or insufficient reagent, an incompatible pair, a failed tool, an unsupported required step, or confidence below 0.70. A refused checklist is labelled *"Do not follow. Shown for transparency only."*
+- **Fail safe:** if the model fails, planning falls back to rules and steps are quoted word for word from the SOPs (status is at most *caution*). There are at most 6 model calls per request, retries included.
+- **Wording:** answers say "Supported by uploaded SOP", never "verified" or "safe". The compatibility matrix (`agents/compatibility.py`) is a **limited demo matrix, not expert-reviewed**, and an unlisted pair is *unknown*, never safe.
+
+**API**
+
+| Endpoint | Purpose |
+|---|---|
+| `POST /api/chat` | Runs the co-pilot. Returns `request_id, response, status, confidence, uncertainty_flag, uncertainty_message, checklist, inventory_status, compatibility, citations, agent_trace`, plus `blockers`, `cautions`, `calculations`, `diagnosis` and `needs_confirmation`. The pre-agent fields (`answer`, `evidence_status`, ...) are still included. Body: `question`, optional `session_id`, `document_ids`, `upload_id`, `error_code` |
+| `POST /api/chat/stream` | The same run as Server-Sent Events: one `trace` event per completed step, then `result` (or a generic `error`) |
+| `POST /api/agent/uploads` | Instrument photo (PNG/JPEG/WebP, size-checked) → `upload_id` plus the code read from the display, which the user must confirm |
+| `GET /api/agent/runs`, `/api/agent/runs/<request_id>` | Read-only audit log: question, tools called (summarised), citations, status, confidence, timestamps |
+| `GET /api/agent/info` | Labels the UI shows (matrix label, decision-support note, demo-data flag) |
+
+Chat, stream and upload are rate-limited per client (`SMARTLAB_AGENT_RATE_LIMIT_PER_MIN`, in-process). Client errors are generic; details go to the server log only.
+
+**Organisations.** There is no authentication yet. Every tool and SOP search is filtered by `organization_id`, which is currently `SMARTLAB_DEFAULT_ORG_ID` (default 1) for every request. Look for `TODO(auth)` in `config.py`, `db.py` and `agents/service.py`.
+
+**Demo data.** These are all **demo data**, labelled as such in their titles and in the UI:
+- five original sample SOPs written for this demo (`sample_data/sops/*_demo.pdf`: TNE buffer, salt stocks, Tris-glycine-SDS running buffer, bleach decontamination, PHM-200 pH meter error codes);
+- seeded stock lots chosen to show each case (in stock, expired, low, expiring, insufficient);
+- 23 compounds with molecular weights and synonyms ("Tris" alone is deliberately ambiguous between Tris base and Tris-HCl);
+- the demo compatibility matrix;
+- troubleshooting entries for an HPLC, a centrifuge and a pH meter.
+
+They are added only to a database that already holds the demo records (`SMARTLAB_SEED_AGENT_DEMO`). Regenerate the PDFs with `python -m app.seed ../sample_data/sops` from `backend/`.
+
+**Evaluation.** `python eval/run_eval.py` (from `backend/`; add `--llm` to use the configured Claude model) runs 21 demo questions on a temporary database. It prints refusal accuracy, citation coverage and guardrail catch rate (corrupted steps marked unsupported, injected instructions caught). These describe the demo set only and are not a benchmark.
+
+---
+
 ## Architecture
 
 ```
@@ -160,6 +211,10 @@ PostgreSQL integration tests are skipped unless `SMARTLAB_TEST_DATABASE_URL` is 
 | `test_governance.py` | Document filters/sort/metadata/approval audit, version listing, re-index, conversation history, answer feedback → review queue → resolve, safety endpoints, settings, reagent audit, literature year filter/sort/sample labelling, schema migration of an old database |
 | `test_documents_api.py` | Upload → query → delete cycle, duplicate detection, text-less PDF, equipment tour, Claude client request shape / refusal / JSON |
 | `test_database_adapter.py` | Engine selection and env-var precedence, URL normalisation and password redaction, SQL translation (placeholders, literals, `LIKE`, `datetime('now')`), PostgreSQL schema, generated ids, row/cursor parity with `sqlite3`, pooled connection cleanup and rollback, SQLite request lifecycle |
+| `test_agent_tools.py` | Co-pilot tools: unit conversion, molar and mass-concentration calculations, missing molecular weight refused, "Tris" ambiguity, stock sufficiency with conversion, expired/expiring/missing/incomparable units, organisation scoping, parameterised names, compatibility (incompatible / unknown / no known issue), error-code diagnosis, `upload_id` path-traversal rejection, read-only connection, timeout and exception fail safe |
+| `test_agent_guardrails.py` | Number normalisation and mismatch detection, unsupported steps kept and marked, computed confidence, status rules, injection screen; orchestrator with a scripted model: grounded run, number mismatch retried then refused, invented passage id, plan numbers checked against the question, `insufficient_evidence` respected, model failure, call budget, tool timeout, unsafe request, prompt injection in an uploaded PDF |
+| `test_agent_api.py` | `/api/chat` contract, SSE trace events then result, generic stream errors, input validation, rate limit, image upload validation and server-generated names, confirm-code flow, audit log, structured chat history, cross-organisation isolation |
+| `test_agent_scenarios.py` | Demo-data scenarios: fully supported run, missing / expired / insufficient reagent, incompatible pair, unknown pair (caution, not safe), missing molecular weight, ambiguous compound, mass mismatch, unanswerable question, pH-meter fix with PPE, inventory lookup |
 | `test_postgres_integration.py` | Real PostgreSQL: ids, timestamp format, numeric JSON, double precision, case-insensitive search, rollback recovery, pooled connections after errors, upserts, column migration, SQLite → PostgreSQL data migration (requires `SMARTLAB_TEST_DATABASE_URL`) |
 
 ---
@@ -185,6 +240,13 @@ All settings are environment variables (see `backend/app/config.py` and `.env.ex
 | `SMARTLAB_DB_POOL_MAX` | `5` | Max pooled PostgreSQL connections per server process |
 | `SMARTLAB_CORS_ORIGINS` | `http://localhost:5173,...` | Allowed browser origins |
 | `SMARTLAB_SEED_DEMO` | `true` | Seed demo data into an empty DB |
+| `SMARTLAB_SEED_AGENT_DEMO` | `true` | Add the co-pilot demo SOPs, stock lots and fixes (only to a demo-seeded DB) |
+| `SMARTLAB_DEFAULT_ORG_ID` | `1` | Organisation every request is scoped to until auth exists |
+| `SMARTLAB_AGENT_TOOL_TIMEOUT_S` | `10` | Per-tool timeout; a timed-out tool makes the answer fail safe |
+| `SMARTLAB_AGENT_TIMEOUT_S` / `_LLM_TIMEOUT_S` | `90` / `60` | Whole-request deadline / one model call |
+| `SMARTLAB_AGENT_MAX_LLM_CALLS` | `6` | Model calls per request, retries included |
+| `SMARTLAB_AGENT_RATE_LIMIT_PER_MIN` | `20` | Chat, stream and upload requests per minute per client (0 disables) |
+| `SMARTLAB_AGENT_UPLOAD_MAX_MB` | `8` | Size limit for co-pilot image uploads |
 
 **Production:** serve with a WSGI server (`waitress-serve --port=5000 --call app:create_app` on Windows, or `gunicorn "app:create_app()"`). Set `SMARTLAB_SECRET_KEY` and put the API behind authentication: the demo has no login, and the "current user" is fixed in `AppContext.jsx`. For a hosted database, see [Deploying with Supabase](#deploying-with-supabase-postgresql).
 
@@ -272,3 +334,10 @@ New columns (document metadata, reagent category) are added automatically on sta
 - Offline image analysis is heuristic (colours, brightness, indicator lights). Reading text off a display needs the Claude vision path, or the user can type the code into the note.
 - Collaboration updates use 5 s polling, not WebSockets.
 - Authentication and authorisation are out of scope for this build.
+- Co-pilot:
+  - The compatibility matrix is a small demo table, not expert-reviewed. Unknown pairs are only flagged.
+  - The calculator gives the mass of the pure compound for solids. It does not handle dilution from liquid stocks, hydrate conversion or purity.
+  - The number check confirms that values appear in the cited passage, not that they are used in the right context.
+  - The injection screen is pattern-based.
+  - The rate limiter is per server process.
+  - Without a model, steps are quoted verbatim from the SOPs and the status is at most *caution*.

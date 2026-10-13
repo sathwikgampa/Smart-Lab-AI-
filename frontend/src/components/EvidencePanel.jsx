@@ -53,7 +53,14 @@ export default function EvidencePanel({ onClose }) {
         <div className="space-y-3 px-4 py-4">
           <div>
             {citation.n != null && <p className="eyebrow mb-1">Source [{citation.n}]</p>}
-            <p className="font-medium leading-snug">{citation.document_title}</p>
+            <p className="font-medium leading-snug">{citation.document_title ?? citation.document}</p>
+            {typeof citation.chunk_id === "string" && (
+              // Co-pilot citations: the passage retrieved for this answer. Wording stays "supported by", never "verified".
+              <p className="mt-1 text-xs text-muted">
+                Passage <code className="font-mono">{citation.chunk_id}</code>, retrieved for this answer. Steps citing it are
+                supported by this uploaded SOP text, which is only as current as the document itself.
+              </p>
+            )}
             <div className="mt-2 flex flex-wrap items-center gap-1.5">
               {citation.approval_status && <ApprovalBadge status={citation.approval_status} />}
               {citation.version && <Badge>v{citation.version}</Badge>}

@@ -16,7 +16,7 @@ from pathlib import Path
 import pymupdf as fitz
 from werkzeug.datastructures import FileStorage
 
-from .db import set_setting, transaction_lock
+from .db import get_setting, set_setting, transaction_lock
 from .security import DOCUMENT_EXTENSIONS, validate_upload
 
 logger = logging.getLogger(__name__)
@@ -126,6 +126,257 @@ DEMO_SOPS.append({
         "T75 flask and incubate at 37 C for 8 to 10 minutes until cells detach. Do not exceed passage number 30.",
     ],
 })
+
+
+# Compound reference data for the lab co-pilot (DEMO DATA). Molecular weights in g/mol.
+# Mixtures (media, buffers sold as a mix, enzyme solutions) have no single molecular weight, so
+# it is left empty and the calculator refuses rather than guessing.
+# Note: "Tris" alone is deliberately not a synonym of either Tris form, so it resolves as ambiguous.
+DEMO_COMPOUNDS: list[tuple[str, str, float | None, str | None, str]] = [
+    # key, display name, MW, CAS, synonyms (;-separated)
+    ("tris_base", "Tris base", 121.14, "77-86-1",
+     "Trizma base; tris(hydroxymethyl)aminomethane; tromethamine; THAM"),
+    ("tris_hcl", "Tris-HCl", 157.60, "1185-53-1", "Tris hydrochloride; Trizma hydrochloride"),
+    ("sodium_chloride", "Sodium chloride", 58.44, "7647-14-5", "NaCl"),
+    ("potassium_chloride", "Potassium chloride", 74.55, "7447-40-7", "KCl"),
+    ("magnesium_chloride_hexahydrate", "Magnesium chloride hexahydrate", 203.30, "7791-18-6",
+     "MgCl2 hexahydrate; MgCl2.6H2O"),
+    ("edta_disodium_dihydrate", "EDTA disodium salt dihydrate", 372.24, "6381-92-6",
+     "Na2EDTA dihydrate; disodium EDTA; EDTA disodium"),
+    ("glycine", "Glycine", 75.07, "56-40-6", "aminoacetic acid"),
+    ("sds", "Sodium dodecyl sulfate", 288.38, "151-21-3", "SDS; sodium lauryl sulfate"),
+    ("sodium_hydroxide", "Sodium hydroxide", 40.00, "1310-73-2", "NaOH; caustic soda"),
+    ("hydrochloric_acid", "Hydrochloric acid", 36.46, "7647-01-0", "HCl; muriatic acid"),
+    ("sodium_hypochlorite", "Sodium hypochlorite", 74.44, "7681-52-9", "bleach; NaOCl; hypochlorite"),
+    ("ammonium_hydroxide", "Ammonium hydroxide", 35.05, "1336-21-6", "ammonia solution; NH4OH"),
+    ("hydrogen_peroxide", "Hydrogen peroxide", 34.01, "7722-84-1", "H2O2"),
+    ("acetone", "Acetone", 58.08, "67-64-1", "propanone"),
+    ("ethanol", "Ethanol", 46.07, "64-17-5", "EtOH; ethyl alcohol; absolute ethanol"),
+    ("methanol", "Methanol", 32.04, "67-56-1", "MeOH; methyl alcohol"),
+    ("acetonitrile", "Acetonitrile", 41.05, "75-05-8", "ACN; MeCN"),
+    ("dmso", "Dimethyl sulfoxide", 78.13, "67-68-5", "DMSO"),
+    ("trypan_blue", "Trypan blue", 960.81, "72-57-1", ""),
+    ("pbs", "Phosphate-buffered saline", None, None, "PBS"),
+    ("trypsin_edta", "Trypsin-EDTA", None, None, "trypsin"),
+    ("dmem", "DMEM", None, None, "Dulbecco's modified Eagle medium"),
+    ("fbs", "Fetal bovine serum", None, None, "FBS"),
+]
+
+# Demo inventory lot name -> compound key (links seeded lots to the reference data).
+DEMO_LOT_COMPOUNDS = {
+    "Ethanol, absolute (200 proof)": "ethanol", "Acetonitrile, HPLC grade": "acetonitrile",
+    "Methanol, HPLC grade": "methanol", "Trypsin-EDTA 0.05%": "trypsin_edta", "DMEM, high glucose": "dmem",
+    "Fetal Bovine Serum": "fbs", "Phosphate-buffered saline (no Ca/Mg)": "pbs", "Trypan blue 0.4%": "trypan_blue",
+    "Sodium hydroxide pellets": "sodium_hydroxide", "Bleach (sodium hypochlorite 10%)": "sodium_hypochlorite",
+    "DMSO, cell culture grade": "dmso",
+}
+
+
+def seed_compounds(conn: sqlite3.Connection) -> None:
+    """Load the demo compound reference data once, and link demo inventory lots to it."""
+    transaction_lock(conn, "seed")
+    if conn.execute("SELECT COUNT(*) FROM compounds").fetchone()[0]:
+        conn.rollback()
+        return
+    conn.executemany(
+        "INSERT INTO compounds (compound_key, display_name, molecular_weight, cas_number, synonyms) VALUES (?, ?, ?, ?, ?)",
+        DEMO_COMPOUNDS)
+    conn.executemany("UPDATE reagents SET compound_key = ? WHERE name = ? AND compound_key IS NULL",
+                     [(key, name) for name, key in DEMO_LOT_COMPOUNDS.items()])
+    conn.commit()
+    logger.info("Seeded %d demo compounds.", len(DEMO_COMPOUNDS))
+
+
+# ---------------------------------------------------------------------------------------------
+# Lab co-pilot demo data (DEMO DATA: original sample SOPs written for this demo, not real procedures).
+# ---------------------------------------------------------------------------------------------
+_DEMO_BANNER = ("DEMO DATA - written for the SmartLab AI demonstration. This is not an approved laboratory "
+                "procedure.")
+
+DEMO_AGENT_SOPS: list[dict] = [
+    {
+        "filename": "SOP-BUF-001_TNE_Buffer_demo.pdf",
+        "title": "SOP-BUF-001 Preparation of Tris-NaCl-EDTA (TNE) Buffer (demo SOP)",
+        "meta": {"category": "Reagent preparation", "doc_code": "SOP-BUF-001", "version": "1.0", "owner": "Demo data",
+                 "approval_status": "approved"},
+        "pages": [
+            "SOP-BUF-001 Preparation of Tris-NaCl-EDTA (TNE) Buffer, pH 8.0\n\n" + _DEMO_BANNER + "\n\n"
+            "1. Purpose\nThis procedure describes the preparation of TNE buffer containing Tris base, sodium chloride "
+            "and EDTA disodium salt dihydrate. The mass of each component is calculated from its molecular weight, "
+            "the target concentration and the final volume required.\n\n"
+            "2. Safety\nWear safety glasses, a lab coat and nitrile gloves. Hydrochloric acid is corrosive: add it "
+            "slowly, in a fume hood, and never add water to concentrated acid. Tris base and EDTA powders are "
+            "irritants; avoid creating dust when weighing.",
+            "3. Procedure\nWeigh the calculated mass of Tris base, sodium chloride and EDTA disodium salt dihydrate on a "
+            "calibrated balance using a clean weighing boat. Transfer the solids to a clean beaker and dissolve them in "
+            "deionised water equal to about 80% of the final volume, stirring with a magnetic stirrer. Calibrate the pH "
+            "meter before use. Adjust the pH to 8.0 by adding hydrochloric acid dropwise while stirring. Transfer the "
+            "solution to a volumetric flask and make up to the final volume with deionised water. Filter through a "
+            "0.22 um membrane filter into a sterile, labelled bottle.\n\n"
+            "4. Storage and Labelling\nLabel the bottle with the buffer name, pH, date and your initials. Store at 4 C "
+            "and use within 1 month. Discard the buffer if it becomes cloudy.",
+        ],
+    },
+    {
+        "filename": "SOP-BUF-002_Salt_Stock_Solutions_demo.pdf",
+        "title": "SOP-BUF-002 Preparation of Salt Stock Solutions (demo SOP)",
+        "meta": {"category": "Reagent preparation", "doc_code": "SOP-BUF-002", "version": "1.0", "owner": "Demo data",
+                 "approval_status": "approved"},
+        "pages": [
+            "SOP-BUF-002 Preparation of Salt Stock Solutions (NaCl, KCl, MgCl2)\n\n" + _DEMO_BANNER + "\n\n"
+            "1. Scope\nThis procedure covers sodium chloride, potassium chloride and magnesium chloride hexahydrate "
+            "stock solutions prepared by weight.\n\n"
+            "2. Safety\nWear safety glasses, a lab coat and gloves. Clean up spilled salt promptly; wet floors are "
+            "slippery.\n\n"
+            "3. Procedure\nCalculate the mass of salt from its molecular weight, the target concentration and the final "
+            "volume. Weigh the salt and dissolve it in deionised water equal to about 80% of the final volume. "
+            "Magnesium chloride hexahydrate is hygroscopic: weigh it quickly and keep the container closed. Make up to "
+            "the final volume with deionised water and mix by inversion. Sterilise by autoclaving at 121 C for 20 "
+            "minutes or filter through a 0.22 um membrane.\n\n"
+            "4. Storage\nStore sodium chloride and potassium chloride stocks at room temperature for up to 6 months. "
+            "Store magnesium chloride solutions at 4 C.",
+        ],
+    },
+    {
+        "filename": "SOP-BUF-003_Tris_Glycine_SDS_Running_Buffer_demo.pdf",
+        "title": "SOP-BUF-003 Preparation of Tris-Glycine-SDS Running Buffer (demo SOP)",
+        "meta": {"category": "Reagent preparation", "doc_code": "SOP-BUF-003", "version": "1.0", "owner": "Demo data",
+                 "approval_status": "approved"},
+        "pages": [
+            "SOP-BUF-003 Preparation of Tris-Glycine-SDS Running Buffer\n\n" + _DEMO_BANNER + "\n\n"
+            "1. Composition\nThe 1x running buffer contains 25 mM Tris base, 192 mM glycine and 0.1% w/v sodium dodecyl "
+            "sulfate (SDS).\n\n"
+            "2. Safety\nSDS powder is a respiratory irritant: weigh it in a fume hood or wear a dust mask. Wear gloves "
+            "and safety glasses.\n\n"
+            "3. Procedure\nDissolve the Tris base and glycine in deionised water equal to about 80% of the final volume. "
+            "Add the SDS last and stir gently to avoid foaming. Do not adjust the pH; it should be about 8.3. Make up "
+            "to the final volume with deionised water.\n\n"
+            "4. Storage\nStore at room temperature and use within 1 month.",
+        ],
+    },
+    {
+        "filename": "SOP-DEC-004_Bench_Decontamination_demo.pdf",
+        "title": "SOP-DEC-004 Bench Decontamination with Bleach (demo SOP)",
+        "meta": {"category": "Safety", "doc_code": "SOP-DEC-004", "version": "1.0", "owner": "Demo data",
+                 "approval_status": "approved"},
+        "pages": [
+            "SOP-DEC-004 Bench Decontamination with Bleach\n\n" + _DEMO_BANNER + "\n\n"
+            "1. Working Solution\nPrepare a 1% w/v sodium hypochlorite working solution fresh each day by diluting the "
+            "stock bleach with water. Apply it to the surface and leave a contact time of 10 minutes, then wipe the "
+            "surface with water.\n\n"
+            "2. Safety\nNever mix bleach with acids, ammonia or alcohols such as ethanol: toxic gases or chlorinated "
+            "by-products can form. Wear gloves and safety glasses and work with good ventilation. Use 70% ethanol only "
+            "after the bleach has been fully wiped off with water.",
+        ],
+    },
+    {
+        "filename": "SOP-PHM-005_pH_Meter_Error_Codes_demo.pdf",
+        "title": "SOP-PHM-005 PHM-200 pH Meter Calibration and Error Codes (demo SOP)",
+        "meta": {"category": "Instrument", "doc_code": "SOP-PHM-005", "version": "1.0", "owner": "Demo data",
+                 "approval_status": "approved"},
+        "pages": [
+            "SOP-PHM-005 PHM-200 pH Meter Calibration and Error Codes\n\n" + _DEMO_BANNER + "\n\n"
+            "1. Calibration\nCalibrate the meter daily with pH 4.01, 7.00 and 10.01 buffers at room temperature. Rinse "
+            "the electrode with deionised water between buffers and blot it dry with lint-free tissue; never wipe the "
+            "glass bulb.\n\n"
+            "2. Error CAL-02 (slope out of range)\nCAL-02 means the electrode slope is outside 90 to 105%. Replace the "
+            "calibration buffers with fresh ones and repeat the calibration. If CAL-02 persists, clean the electrode by "
+            "soaking it in 0.1 M HCl for 15 minutes, rinse, and recalibrate. Replace the electrode if the error "
+            "continues.",
+            "3. Error ERR-07 (unstable reading)\nERR-07 means the reading did not stabilise within 60 seconds. Check "
+            "that the electrode junction is wet and that the reference fill solution covers the internal element. "
+            "Refill with 3 M KCl if the level is low. Store the electrode in storage solution, never in deionised "
+            "water.\n\n"
+            "4. Safety\nWear safety glasses and gloves when handling the hydrochloric acid cleaning solution.",
+        ],
+    },
+]
+
+# (name, compound_key, quantity, unit, reorder_threshold, location, expiry offset in days, category)
+DEMO_AGENT_LOTS = [
+    ("Tris base, molecular biology grade (demo)", "tris_base", 500, "g", 100, "Chemical store B, shelf 2", 300, "Buffer salt"),
+    ("Tris-HCl (demo, expired lot)", "tris_hcl", 250, "g", 50, "Chemical store B, shelf 2", -20, "Buffer salt"),
+    ("Sodium chloride, ACS grade (demo)", "sodium_chloride", 1, "kg", 0.2, "Chemical store B, shelf 1", 500, "Buffer salt"),
+    ("EDTA disodium salt dihydrate (demo)", "edta_disodium_dihydrate", 100, "g", 20, "Chemical store B, shelf 3", 200,
+     "Buffer salt"),
+    ("Glycine (demo, low stock)", "glycine", 40, "g", 50, "Chemical store B, shelf 3", 400, "Buffer salt"),
+    ("SDS, electrophoresis grade (demo, expiring)", "sds", 50, "g", 10, "Chemical store B, shelf 4", 12, "Detergent"),
+    ("Potassium chloride (demo, small lot)", "potassium_chloride", 5, "g", 25, "Chemical store B, shelf 1", 300,
+     "Buffer salt"),
+    ("Hydrochloric acid 37% (demo)", "hydrochloric_acid", 2.5, "L", 0.5, "Corrosives cabinet C2", 700, "Acid"),
+]
+
+# (error_code, equipment, symptom, keywords, probable_cause, fix, source_document, source_page, machine_model, ppe)
+DEMO_AGENT_FIXES = [
+    ("CAL-02", "pH meter", "Calibration fails with slope out of range", "calibration, slope, cal fail, buffer, electrode",
+     "Old calibration buffers or a dirty electrode",
+     "Replace the calibration buffers with fresh ones and repeat the calibration. If CAL-02 persists, clean the "
+     "electrode by soaking it in 0.1 M HCl for 15 minutes, rinse, and recalibrate. Replace the electrode if the error "
+     "continues.", "SOP-PHM-005 PHM-200 pH Meter Calibration and Error Codes (demo SOP)", 1,
+     "PHM-200 benchtop pH meter (demo instrument)",
+     "Wear safety glasses and nitrile gloves when handling the hydrochloric acid cleaning solution."),
+    ("ERR-07", "pH meter", "Reading does not stabilise", "unstable, drifting, not stable, junction, reference, fill",
+     "Dry junction or low reference fill solution",
+     "Check that the electrode junction is wet and that the reference fill solution covers the internal element. "
+     "Refill with 3 M KCl if the level is low.", "SOP-PHM-005 PHM-200 pH Meter Calibration and Error Codes (demo SOP)",
+     2, "PHM-200 benchtop pH meter (demo instrument)", "Wear safety glasses and gloves when refilling the electrode."),
+]
+
+# Machine model and PPE notes for the troubleshooting entries seeded by seed_records().
+DEMO_FIX_DETAILS = {
+    "E-104": ("Analytical HPLC #2, quaternary pump (demo instrument)",
+              "Wear safety glasses, a lab coat and nitrile gloves. Never open a pressurised fitting while the pump is "
+              "running."),
+    "IMB-01": ("Refrigerated benchtop centrifuge (demo instrument)",
+               "Wait for the rotor to stop completely before opening the lid. Use sealed buckets for biological samples."),
+    "LID-12": ("Refrigerated benchtop centrifuge (demo instrument)", "Never override the lid interlock."),
+}
+
+
+def seed_agent_demo(conn: sqlite3.Connection, rag_engine, upload_dir: Path, max_bytes: int) -> None:
+    """Add the lab co-pilot demo data (SOPs, stock lots, fixes) once, and only to a demo database.
+
+    A database counts as a demo database when seed_records() populated it, so real data is never mixed
+    with demo rows.
+    """
+    from .rag.engine import DuplicateDocumentError
+
+    transaction_lock(conn, "seed")
+    if get_setting(conn, "demo_agent_data") == "true" or get_setting(conn, "demo_records") != "true":
+        conn.rollback()
+        return
+    for sop in DEMO_AGENT_SOPS:
+        data = build_pdf(sop["title"], sop["pages"])
+        upload = FileStorage(stream=io.BytesIO(data), filename=sop["filename"], content_type="application/pdf")
+        validated = validate_upload(upload, DOCUMENT_EXTENSIONS, max_bytes=max_bytes)
+        try:
+            rag_engine.ingest(conn, validated, upload_dir, title=sop["title"], doc_type="SOP", metadata=sop["meta"])
+        except DuplicateDocumentError:
+            pass
+    transaction_lock(conn, "seed")
+    conn.executemany(
+        "INSERT INTO reagents (name, compound_key, quantity, unit, reorder_threshold, location, expiry_date, category, "
+        "supplier, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'Demo supplier', 'DEMO DATA')",
+        [(n, k, q, u, t, loc, _d(days), cat) for n, k, q, u, t, loc, days, cat in DEMO_AGENT_LOTS])
+    conn.executemany(
+        "INSERT INTO troubleshooting (error_code, equipment, symptom, keywords, probable_cause, fix, source_document, "
+        "source_page, machine_model, ppe_warning) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", DEMO_AGENT_FIXES)
+    conn.executemany("UPDATE troubleshooting SET machine_model = ?, ppe_warning = ? WHERE error_code = ? "
+                     "AND machine_model IS NULL", [(m, p, code) for code, (m, p) in DEMO_FIX_DETAILS.items()])
+    set_setting(conn, "demo_agent_data", "true")
+    conn.commit()
+    logger.info("Seeded lab co-pilot demo data (%d SOPs, %d lots).", len(DEMO_AGENT_SOPS), len(DEMO_AGENT_LOTS))
+
+
+def write_demo_sop_pdfs(target: Path) -> list[Path]:
+    """Write the co-pilot demo SOPs as text-based PDFs (used to refresh sample_data/sops)."""
+    target.mkdir(parents=True, exist_ok=True)
+    paths = []
+    for sop in DEMO_AGENT_SOPS:
+        path = target / sop["filename"]
+        path.write_bytes(build_pdf(sop["title"], sop["pages"]))
+        paths.append(path)
+    return paths
 
 
 def build_pdf(title: str, pages: list[str]) -> bytes:
@@ -300,3 +551,10 @@ def seed_records(conn: sqlite3.Connection) -> None:
     )
     conn.commit()
     logger.info("Seeded demo records.")
+
+
+if __name__ == "__main__":  # python -m app.seed <dir>: write the co-pilot demo SOP PDFs
+    import sys
+
+    for written in write_demo_sop_pdfs(Path(sys.argv[1] if len(sys.argv) > 1 else "../sample_data/sops")):
+        print(written)

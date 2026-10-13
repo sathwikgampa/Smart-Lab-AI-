@@ -1,41 +1,125 @@
-"""Conversational lab knowledge (RAG Q&A), conversation history, answer feedback and raw vector search."""
+"""Lab co-pilot chat (agent runs, plain JSON and Server-Sent Events), conversation history, answer
+feedback and raw vector search."""
 from __future__ import annotations
 
+import json
+import logging
+import queue
+import re
+import threading
+import time
 import uuid
 
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, Response, current_app, jsonify, request, stream_with_context
 
+from ..agents.service import legacy_fields, make_orchestrator, persist_run
+from ..agents.tools import ERROR_CODE, UPLOAD_ID
 from ..db import audit, dumps, execute, get_db, loads, query_all, query_one
 from .common import ApiError, int_arg, json_body, rag, require
+from .ratelimit import rate_limited
+
+logger = logging.getLogger(__name__)
 
 bp = Blueprint("chat", __name__, url_prefix="/api")
 
 MAX_QUESTION_CHARS = 2000
-META_KEYS = ("evidence_status", "confidence", "warnings", "mode", "missing_terms", "guardrails", "source_issues",
-             "requires_verification", "service_notice")
 FEEDBACK_RATINGS = {"helpful", "incorrect", "unsafe", "outdated"}
+_SESSION_ID = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 
 
-@bp.post("/chat")
-def chat():
-    data = json_body()
+def _chat_input(data: dict) -> dict:
+    """Validate a chat request. Error messages name the field only; nothing internal is echoed."""
     require(data, "question")
-    question = str(data["question"]).strip()
+    if not isinstance(data["question"], str):
+        raise ApiError("question must be a string.")
+    question = data["question"].strip()
     if len(question) > MAX_QUESTION_CHARS:
         raise ApiError(f"Question exceeds {MAX_QUESTION_CHARS} characters.")
     session_id = str(data.get("session_id") or uuid.uuid4().hex)[:64]
+    if not _SESSION_ID.fullmatch(session_id):
+        raise ApiError("session_id is invalid.")
     doc_ids = data.get("document_ids") or None
-    if doc_ids is not None and (not isinstance(doc_ids, list) or not all(isinstance(i, int) for i in doc_ids)):
+    if doc_ids is not None and (not isinstance(doc_ids, list) or len(doc_ids) > 50
+                                or not all(isinstance(i, int) and not isinstance(i, bool) for i in doc_ids)):
         raise ApiError("document_ids must be a list of integers.")
+    upload_id = data.get("upload_id") or None
+    if upload_id is not None and (not isinstance(upload_id, str) or not UPLOAD_ID.fullmatch(upload_id)):
+        raise ApiError("upload_id is invalid.")
+    error_code = data.get("error_code") or None
+    if error_code is not None and (not isinstance(error_code, str) or not ERROR_CODE.fullmatch(error_code.strip())):
+        raise ApiError("error_code must look like E-104 or IMB-01.")
+    return {"question": question, "session_id": session_id, "document_ids": doc_ids, "upload_id": upload_id,
+            "error_code": error_code.strip() if error_code else None}
 
-    result = rag().answer(get_db(), question, document_ids=doc_ids)
-    execute("INSERT INTO chat_messages (session_id, role, content) VALUES (?, 'user', ?)", (session_id, question))
-    meta = {k: result[k] for k in META_KEYS}
-    msg_id = execute(
-        "INSERT INTO chat_messages (session_id, role, content, citations_json, meta_json) VALUES (?, 'assistant', ?, ?, ?)",
-        (session_id, result["answer"], dumps(result["citations"]), dumps(meta)),
-    )
-    return jsonify({"session_id": session_id, "message_id": msg_id, **result})
+
+def _response(inp: dict, result: dict, message_id: int) -> dict:
+    return {"session_id": inp["session_id"], "message_id": message_id, **result,
+            **legacy_fields(result, inp["question"])}
+
+
+@bp.post("/chat")
+@rate_limited("agent")
+def chat():
+    """Run the lab co-pilot and return its structured result (plus the pre-agent fields)."""
+    inp = _chat_input(json_body())
+    orchestrator = make_orchestrator(document_ids=inp["document_ids"])
+    result = orchestrator.run(inp["question"], upload_id=inp["upload_id"], error_code=inp["error_code"])
+    msg_id = persist_run(get_db(), question=inp["question"], session_id=inp["session_id"], result=result)
+    return jsonify(_response(inp, result, msg_id))
+
+
+def _sse(event: str, payload: dict) -> str:
+    return f"event: {event}\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"
+
+
+@bp.post("/chat/stream")
+@rate_limited("agent")
+def chat_stream():
+    """Same run as /api/chat, streamed: one ``trace`` event per completed step, then ``result`` (or ``error``)."""
+    inp = _chat_input(json_body())
+    events: queue.Queue = queue.Queue()
+    orchestrator = make_orchestrator(on_event=lambda kind, payload: events.put((kind, payload)),
+                                     document_ids=inp["document_ids"])
+    hard_limit = float(current_app.config.get("AGENT_TIMEOUT_S", 90)) + 30
+
+    def work() -> None:
+        try:
+            events.put(("result", orchestrator.run(inp["question"], upload_id=inp["upload_id"],
+                                                   error_code=inp["error_code"])))
+        except Exception:  # noqa: BLE001 - details go to the log only
+            logger.exception("Streaming agent run failed")
+            events.put(("error", {"error": "The co-pilot could not complete this request."}))
+
+    threading.Thread(target=work, daemon=True, name="agent-run").start()
+
+    @stream_with_context
+    def generate():
+        started = time.monotonic()
+        yield ": stream open\n\n"
+        while True:
+            try:
+                kind, payload = events.get(timeout=10)
+            except queue.Empty:
+                if time.monotonic() - started > hard_limit:
+                    yield _sse("error", {"error": "The co-pilot timed out."})
+                    return
+                yield ": keep-alive\n\n"
+                continue
+            if kind == "result":
+                try:
+                    msg_id = persist_run(get_db(), question=inp["question"], session_id=inp["session_id"],
+                                         result=payload)
+                    payload = _response(inp, payload, msg_id)
+                except Exception:  # noqa: BLE001
+                    logger.exception("Could not store agent run")
+                    yield _sse("error", {"error": "The co-pilot could not complete this request."})
+                    return
+            yield _sse(kind, payload)
+            if kind in ("result", "error"):
+                return
+
+    return Response(generate(), mimetype="text/event-stream",
+                    headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
 
 @bp.post("/chat/<session_id>/messages")

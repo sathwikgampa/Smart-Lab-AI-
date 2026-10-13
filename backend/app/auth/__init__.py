@@ -169,9 +169,17 @@ def send_reset_email(app: Flask, to: str, name: str, link: str) -> None:
 
 # ------------------------------------------------------------------ request gate
 def _origin_allowed(origin: str) -> bool:
-    allowed = {o.strip().rstrip("/") for o in current_app.config["CORS_ORIGINS"] if o.strip()}
+    allowed = {o.strip().rstrip("/") for o in current_app.config["CORS_ORIGINS"] if isinstance(o, str) and not o.startswith("^") and o.strip()}
     own = f"{urlsplit(request.host_url).scheme}://{urlsplit(request.host_url).netloc}"
-    return origin.rstrip("/") in allowed | {own}
+    if origin.rstrip("/") in allowed | {own}:
+        return True
+    try:
+        parsed = urlsplit(origin)
+        if parsed.hostname in {"localhost", "127.0.0.1"}:
+            return True
+    except Exception:
+        pass
+    return False
 
 
 def init_auth(app: Flask) -> None:

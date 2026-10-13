@@ -143,7 +143,14 @@ class Config:
     AGENT_RATE_LIMIT_PER_MIN = int(os.getenv("SMARTLAB_AGENT_RATE_LIMIT_PER_MIN", "20"))
     AGENT_UPLOAD_MAX_MB = int(os.getenv("SMARTLAB_AGENT_UPLOAD_MAX_MB", "8"))
 
-    CORS_ORIGINS = os.getenv("SMARTLAB_CORS_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173").split(",")
+    CORS_ORIGINS = [
+        o.strip()
+        for o in os.getenv(
+            "SMARTLAB_CORS_ORIGINS",
+            "http://localhost:5173,http://127.0.0.1:5173,http://localhost:5174,http://127.0.0.1:5174,http://localhost:5175,http://127.0.0.1:5175,http://localhost:5176,http://127.0.0.1:5176,http://localhost:3000,http://127.0.0.1:3000",
+        ).split(",")
+        if o.strip()
+    ] + [r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$"]
     SEED_DEMO_DATA = _env_bool("SMARTLAB_SEED_DEMO", True)
     # Lab co-pilot demo SOPs, stock lots and fixes (added only to a database that holds the demo records).
     SEED_AGENT_DEMO = _env_bool("SMARTLAB_SEED_AGENT_DEMO", True)

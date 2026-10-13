@@ -127,10 +127,10 @@
   .rail-bar { @apply absolute -left-2 top-2 h-6 w-[3px] rounded-r-full bg-accent; }
 
   /* Toggle switch (role="switch") */
-  .switch { @apply relative inline-flex h-5 w-9 shrink-0 items-center rounded-full bg-line transition-colors; }
-  .switch[aria-checked="true"] { @apply bg-accent; }
+  .switch { @apply relative inline-flex h-5 w-9 shrink-0 items-center rounded-full bg-faint/60 transition-colors; }
+  .switch[aria-checked="true"], [aria-checked="true"] > .switch { @apply bg-accent; }
   .switch-knob { @apply inline-block h-4 w-4 translate-x-0.5 rounded-full bg-white shadow-panel transition-transform; }
-  .switch[aria-checked="true"] .switch-knob { @apply translate-x-[18px]; }
+  .switch[aria-checked="true"] .switch-knob, [aria-checked="true"] > .switch .switch-knob { @apply translate-x-[18px]; }
 
   /* Underline tabs */
   .tab-u {
@@ -153,3 +153,66 @@
 @keyframes sl-toast-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
 .pop-in { animation: sl-pop-in 140ms ease-out; }
 .toast-in { animation: sl-toast-in 180ms ease-out; }
+
+/* ------------------------------------------------------------------ SmartLab orb (home page) */
+.orb {
+  --orb-size: 60px;
+  --orb-cycle: 4s;
+  position: relative;
+  width: var(--orb-size);
+  height: calc(var(--orb-size) + 22px);
+  animation: orb-enter 500ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+.orb-float { position: relative; width: var(--orb-size); height: var(--orb-size); animation: orb-float var(--orb-cycle) ease-in-out infinite; }
+.orb-glow {
+  position: absolute; inset: 0; border-radius: 9999px;
+  box-shadow: 0 8px 24px rgba(139, 63, 217, 0.35), 0 0 32px rgba(155, 77, 224, 0.22);
+  animation: orb-breathe var(--orb-cycle) ease-in-out infinite;
+  animation-delay: -1s; /* slightly out of phase with the float */
+}
+.orb-scale { position: absolute; inset: 0; transition: transform 250ms ease-out; }
+.orb-body {
+  position: absolute; inset: 0; overflow: hidden; border-radius: 9999px;
+  background: radial-gradient(circle at 32% 28%, #D9C2FB 0%, #B57BEE 22%, #9B4DE0 48%, #7E37CF 76%, #6B2FC4 100%);
+}
+/* Slowly drifting highlight */
+.orb-light {
+  position: absolute; inset: -10%; border-radius: 9999px;
+  background: radial-gradient(circle at 30% 25%, rgba(240, 228, 255, 0.75) 0%, rgba(240, 228, 255, 0) 38%);
+  animation: orb-drift 8s ease-in-out infinite;
+}
+/* Inner shade near the bottom edge */
+.orb-shade {
+  position: absolute; inset: 0; border-radius: 9999px;
+  background: radial-gradient(ellipse 80% 45% at 55% 100%, rgba(58, 18, 120, 0.45) 0%, rgba(58, 18, 120, 0) 70%);
+}
+/* Specular ellipse (soft edge via gradient, not filter) */
+.orb-spec {
+  position: absolute; left: 20%; top: 12%; width: 34%; height: 20%; border-radius: 50%;
+  transform: rotate(-28deg);
+  background: radial-gradient(ellipse at center, rgba(255, 255, 255, 0.6) 0%, rgba(255, 255, 255, 0.25) 45%, rgba(255, 255, 255, 0) 72%);
+}
+.orb-bright { position: absolute; inset: 0; border-radius: 9999px; background: rgba(255, 255, 255, 0.14); opacity: 0; transition: opacity 250ms ease-out; }
+.orb-ground {
+  position: absolute; left: 50%; bottom: 0; width: 70%; height: 8px; margin-left: -35%; border-radius: 50%;
+  background: radial-gradient(ellipse at center, rgba(107, 47, 196, 0.28) 0%, rgba(107, 47, 196, 0) 70%);
+  animation: orb-ground var(--orb-cycle) ease-in-out infinite;
+}
+
+.orb[data-state="focused"] .orb-scale { transform: scale(1.04); }
+.orb[data-state="focused"] .orb-bright { opacity: 1; }
+.orb[data-state="thinking"] { --orb-cycle: 1.2s; }
+.orb[data-state="thinking"] .orb-glow { animation-name: orb-breathe-strong; }
+.orb[data-state="thinking"] .orb-bright { opacity: 0.6; }
+.orb[data-paused] *, .orb[data-paused] { animation-play-state: paused; }
+
+@keyframes orb-enter { from { opacity: 0; transform: scale(0.9); } to { opacity: 1; transform: scale(1); } }
+@keyframes orb-float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-6px); } }
+@keyframes orb-breathe { 0%, 100% { opacity: 0.65; transform: scale(1); } 50% { opacity: 1; transform: scale(1.06); } }
+@keyframes orb-breathe-strong { 0%, 100% { opacity: 0.8; transform: scale(1.02); } 50% { opacity: 1; transform: scale(1.14); } }
+@keyframes orb-drift { 0%, 100% { transform: translate(0, 0); } 33% { transform: translate(6%, 4%); } 66% { transform: translate(-3%, 6%); } }
+@keyframes orb-ground { 0%, 100% { transform: scaleX(1); opacity: 1; } 50% { transform: scaleX(0.8); opacity: 0.6; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .orb, .orb * { animation: none !important; transition: none !important; }
+}

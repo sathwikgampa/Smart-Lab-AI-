@@ -34,3 +34,7 @@ yarn-error.log*
 Thumbs.db
 .vscode/
 .idea/
+
+# Large Archives (>100MB)
+*.rar
+

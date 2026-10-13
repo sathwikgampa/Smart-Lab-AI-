@@ -123,7 +123,7 @@ export function MenuButton({
         },
       })}
       <Floating anchorRef={btnRef} panelRef={listRef} open={open} placement={placement} caret={caret} className={`${width} ${className}`}>
-        {header && <p className="px-3 pb-1 pt-2.5 text-xs font-semibold text-ink">{header}</p>}
+        {typeof header === "string" ? <p className="px-3 pb-1 pt-2.5 text-xs font-semibold text-ink">{header}</p> : header}
         <div role="menu" aria-label={menuLabel ?? label} onKeyDown={onKeyDown} className="p-1.5">
           {items.map((item) => item.divider ? <div key={item.id} role="separator" className="mx-1 my-1.5 border-t border-line" /> : (
             <button key={item.id} type="button" role={radio ? "menuitemradio" : "menuitem"} aria-checked={radio ? value === item.id : undefined}

@@ -224,6 +224,40 @@ CREATE TABLE IF NOT EXISTS settings (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
 );
+
+-- Authentication. Emails are stored lower-case; only salted password hashes and SHA-256 hashes of
+-- session/reset tokens are kept, never the secrets themselves. Times are UTC 'YYYY-MM-DD HH:MM:SS'.
+CREATE TABLE IF NOT EXISTS users (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    email TEXT NOT NULL UNIQUE,
+    name TEXT NOT NULL,
+    organization TEXT,
+    password_hash TEXT NOT NULL,
+    role TEXT NOT NULL DEFAULT 'member',
+    profile_id INTEGER REFERENCES profiles(id),
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    last_login_at TEXT,
+    password_changed_at TEXT
+);
+
+CREATE TABLE IF NOT EXISTS auth_sessions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    token_hash TEXT NOT NULL UNIQUE,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    expires_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_auth_sessions_user ON auth_sessions(user_id);
+
+CREATE TABLE IF NOT EXISTS password_resets (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    token_hash TEXT NOT NULL UNIQUE,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    expires_at TEXT NOT NULL,
+    used_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_password_resets_user ON password_resets(user_id);
 """
 
 # Columns added after the first release; added to existing databases on start-up.
@@ -556,7 +590,8 @@ def close_db(_exc: BaseException | None = None) -> None:
 
 _SCHEMA_LOCK = 0x5A1AB001
 _SEED_LOCK = 0x5A1AB002
-_lock_ids = {"schema": _SCHEMA_LOCK, "seed": _SEED_LOCK}
+_USERS_LOCK = _SEED_LOCK + 1  # serialises sign-ups (first account becomes admin; unique email)
+_lock_ids = {"schema": _SCHEMA_LOCK, "seed": _SEED_LOCK, "users": _USERS_LOCK}
 
 
 def transaction_lock(conn: Any, name: str) -> None:

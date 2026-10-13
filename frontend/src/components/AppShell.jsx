@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Activity, AlignLeft, BookOpen, Boxes, ChevronDown, FileText, FlaskConical, FolderPlus, House, Layers, MessageSquareText,
-  Plus, Search, Settings, ShieldAlert, UserPlus, Wrench,
+  LogOut, Plus, Search, Settings, ShieldAlert, UserPlus, Wrench,
 } from "lucide-react";
 import { useApp } from "../context/AppContext";
 import { api } from "../lib/api";
@@ -89,8 +89,36 @@ function GroupFlyout({ group, current, open, onOpenChange, showTip, hideTip }) {
   );
 }
 
+/** Avatar button with the signed-in account's details, Settings and Log out. */
+function AccountMenu({ user, onLogout, hideTip, tipProps }) {
+  const header = (
+    <div className="border-b border-line px-3.5 pb-2.5 pt-3">
+      <p className="truncate text-sm font-medium text-ink">{user.name}</p>
+      <p className="truncate text-xs text-muted">{user.email}</p>
+      <p className="mt-1 text-2xs text-muted">{user.role}{user.organization ? ` · ${user.organization}` : ""}</p>
+    </div>
+  );
+  return (
+    <MenuButton label={`Account: ${user.name}`} placement="right-start" width="w-60"
+      items={[
+        { id: "settings", label: "Settings", icon: Settings },
+        { id: "logout", label: "Log out", icon: LogOut },
+      ]}
+      onSelect={(id) => (id === "logout" ? onLogout() : navigate("settings"))}
+      footer={null}
+      renderButton={({ ref, props, open }) => (
+        <button ref={ref} type="button" {...props} {...(open ? {} : tipProps(user.name))}
+          onClick={() => { hideTip(); props.onClick(); }}
+          className="mt-2 flex h-8 w-8 items-center justify-center rounded-full bg-accent-soft text-[0.6875rem] font-semibold text-accent-strong hover:ring-2 hover:ring-accent/30">
+          {initials(user.name)}
+        </button>
+      )}
+      header={header} />
+  );
+}
+
 function Rail({ current }) {
-  const { connected, health, currentUser } = useApp();
+  const { connected, health, currentUser, logout } = useApp();
   const [tip, setTip] = useState(null);
   const [openGroup, setOpenGroup] = useState(null);
   const navRef = useRef(null);
@@ -151,10 +179,7 @@ function Rail({ current }) {
         {FOOTER_NAV.map(railLink)}
       </div>
 
-      <div className="mt-2 flex h-8 w-8 items-center justify-center rounded-full bg-accent-soft text-[0.6875rem] font-semibold text-accent-strong"
-        role="img" aria-label={`Signed in as ${currentUser.name}`} tabIndex={0} {...tipProps(`${currentUser.name} · ${currentUser.role}`)}>
-        {initials(currentUser.name)}
-      </div>
+      <AccountMenu user={currentUser} onLogout={logout} hideTip={hideTip} tipProps={tipProps} />
       <RailTooltip tip={tip} />
     </nav>
   );

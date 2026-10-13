@@ -185,8 +185,15 @@ All settings are environment variables (see `backend/app/config.py` and `.env.ex
 | `SMARTLAB_DB_POOL_MAX` | `5` | Max pooled PostgreSQL connections per server process |
 | `SMARTLAB_CORS_ORIGINS` | `http://localhost:5173,...` | Allowed browser origins |
 | `SMARTLAB_SEED_DEMO` | `true` | Seed demo data into an empty DB |
+| `SMARTLAB_AUTH_REQUIRED` | `true` | Require sign-in for every API route except health and auth |
+| `SMARTLAB_SESSION_DAYS` | `14` | Session lifetime |
+| `SMARTLAB_COOKIE_SECURE` | `auto` | `true` in production behind HTTPS |
+| `SMARTLAB_LOGIN_ATTEMPT_LIMIT` | `10` | Login/reset attempts per 15 min, per client and per email |
+| `SMARTLAB_PUBLIC_URL` | `http://localhost:5173` | Base URL used in password-reset links |
+| `SMARTLAB_RESET_TOKEN_MINUTES` | `30` | Reset link lifetime |
+| `SMARTLAB_SMTP_HOST` / `_PORT` / `_USER` / `_PASSWORD` / `_FROM` / `_STARTTLS` | - | Email for reset links (unset: link is logged) |
 
-**Production:** serve with a WSGI server (`waitress-serve --port=5000 --call app:create_app` on Windows, or `gunicorn "app:create_app()"`). Set `SMARTLAB_SECRET_KEY` and put the API behind authentication: the demo has no login, and the "current user" is fixed in `AppContext.jsx`. For a hosted database, see [Deploying with Supabase](#deploying-with-supabase-postgresql).
+**Production:** serve with a WSGI server (`waitress-serve --port=5000 --call app:create_app` on Windows, or `gunicorn "app:create_app()"`). Set `SMARTLAB_SECRET_KEY`, serve over HTTPS with `SMARTLAB_COOKIE_SECURE=true`, and configure SMTP for password resets (see [Authentication](#authentication)). For a hosted database, see [Deploying with Supabase](#deploying-with-supabase-postgresql).
 
 ## Deploying with Supabase (PostgreSQL)
 
@@ -265,10 +272,21 @@ SMARTLAB_TEST_DATABASE_URL=postgresql://postgres:pw@127.0.0.1:55432/postgres pyt
 
 New columns (document metadata, reagent category) are added automatically on start-up. Existing documents become *Unreviewed* in category *General*; set their status in Documents. To reload the demo data instead, stop the server and delete `backend/instance/`.
 
+## Authentication
+
+- **Pages:** the landing page is public at `/`; `#/login`, `#/signup`, `#/forgot-password`, `#/reset-password`, `#/privacy`, `#/terms` and `#/contact` are public too. Every app page (`#/overview`, `#/documents`, ...) requires sign-in and redirects to `#/login?next=...`.
+- **API:** every `/api` route except `/api/health` and `/api/auth/*` returns `401` without a valid session. Endpoints: `POST /api/auth/signup`, `POST /api/auth/login`, `POST /api/auth/logout`, `GET /api/auth/me`, `POST /api/auth/forgot-password`, `POST /api/auth/reset-password`.
+- **Accounts:** the first account created becomes `admin`; later sign-ups are `member`. Each account gets a researcher profile so comments, shared files and experiments are attributed to it.
+- **Passwords:** at least 12 characters and not a common or easily guessed password; stored only as salted scrypt hashes (Werkzeug).
+- **Sessions:** random 256-bit token in an httpOnly, SameSite=Lax cookie (`smartlab_session`); only its SHA-256 hash is stored server-side. Logging out deletes the session; resetting a password signs out every session.
+- **Password reset:** the forgot-password response is identical whether or not the account exists. Links are single-use, expire after 30 minutes, and only the newest link works. Without SMTP settings the link is written to the backend log (development).
+- **Abuse protection:** login, sign-up and reset attempts are rate-limited; state-changing requests from origins outside `SMARTLAB_CORS_ORIGINS` are rejected.
+- **Tests:** `tests/test_auth.py` covers the above. The other test modules run with `AUTH_REQUIRED` off (`TestConfig`) so they exercise features directly.
+
 ## Known limitations
-- No user accounts, roles or permissions yet: anyone who can reach the server can approve documents and edit records. Run it only on a trusted network.
+- Accounts have a role (admin or member), but feature permissions are not role-specific yet: any signed-in user can approve documents and edit records.
 - Conflict detection covers *versions of the same document* (shared document code). Contradictions between different documents are not detected.
 - Scanned (image-only) PDFs are rejected with a clear message; run OCR first.
 - Offline image analysis is heuristic (colours, brightness, indicator lights). Reading text off a display needs the Claude vision path, or the user can type the code into the note.
 - Collaboration updates use 5 s polling, not WebSockets.
-- Authentication and authorisation are out of scope for this build.
+- Login rate limits are kept in process memory; with several server processes, put a shared limiter (or the reverse proxy) in front.

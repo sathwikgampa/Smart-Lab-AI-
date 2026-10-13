@@ -31,9 +31,13 @@ export function AppProvider({ children }) {
   const [healthError, setHealthError] = useState(null);
   const [evidence, setEvidence] = useState(null); // { citations: [...], active: n }
   const [confirmState, setConfirmState] = useState(null);
-  const [currentUser] = useState({ id: 3, name: "Priya Raman", role: "Research Associate" });
   // Signed-in account: undefined while checking, null when signed out.
   const [account, setAccount] = useState(undefined);
+  // The person using the app. `id` is their researcher profile, used to attribute comments, files and experiments.
+  const currentUser = useMemo(() => (account ? {
+    id: account.profile_id, accountId: account.id, name: account.name, email: account.email,
+    organization: account.organization, role: account.role === "admin" ? "Admin" : "Member",
+  } : { id: null, name: "", role: "" }), [account]);
   // Shared between the top bar and the Ask view.
   const [askScope, setAskScope] = useState(null); // {id, title}: answer from one document only
   const [threadTitle, setThreadTitle] = useState(null);
@@ -45,6 +49,19 @@ export function AppProvider({ children }) {
     const id = ++toastId.current;
     setToasts((t) => [...t.slice(-3), { id, message, type }]);
     setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 5000);
+  }, []);
+
+  useEffect(() => {
+    api.me().then((r) => setAccount(r.user ?? null)).catch(() => setAccount(null));
+    const onUnauthorized = () => setAccount(null);
+    window.addEventListener("smartlab:unauthorized", onUnauthorized);
+    return () => window.removeEventListener("smartlab:unauthorized", onUnauthorized);
+  }, []);
+  const logout = useCallback(async () => {
+    try { await api.logout(); } catch { /* the session is cleared below either way */ }
+    // Full reload so no data from this account stays in memory.
+    window.location.replace(`${window.location.pathname}#/`);
+    window.location.reload();
   }, []);
 
   const refreshHealth = useCallback(() => {
@@ -88,8 +105,8 @@ export function AppProvider({ children }) {
   const value = useMemo(() => ({
     toast, confirm, health, healthError, connected, refreshHealth, evidence, openEvidence, closeEvidence, currentUser,
     askScope, setAskScope, threadTitle, setThreadTitle, answerMode, setAnswerMode, citationsOn, setCitationsOn,
-    account, setAccount,
-  }), [account, toast, confirm, health, healthError, connected, refreshHealth, evidence, openEvidence, closeEvidence, currentUser,
+    account, setAccount, logout,
+  }), [account, logout, toast, confirm, health, healthError, connected, refreshHealth, evidence, openEvidence, closeEvidence, currentUser,
     askScope, threadTitle, answerMode, setAnswerMode, citationsOn, setCitationsOn]);
 
   return (

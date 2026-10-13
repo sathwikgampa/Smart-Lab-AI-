@@ -147,7 +147,7 @@ class Config:
         o.strip()
         for o in os.getenv(
             "SMARTLAB_CORS_ORIGINS",
-            "http://localhost:5173,http://127.0.0.1:5173,http://localhost:5174,http://127.0.0.1:5174,http://localhost:5175,http://127.0.0.1:5175,http://localhost:5176,http://127.0.0.1:5176,http://localhost:3000,http://127.0.0.1:3000",
+            "http://localhost:5173,http://127.0.0.1:5173,http://localhost:5174,http://127.0.0.1:5174,http://localhost:5175,http://127.0.0.1:5175,http://localhost:5176,http://127.0.0.1:5176,http://localhost:3000,http://127.0.0.1:3000,https://smart-lab-ai.onrender.com",
         ).split(",")
         if o.strip()
     ] + [r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$"]
@@ -164,7 +164,7 @@ class Config:
     AUTH_COOKIE_SECURE = os.getenv("SMARTLAB_COOKIE_SECURE", "auto").strip().lower()
     RESET_TOKEN_MINUTES = int(os.getenv("SMARTLAB_RESET_TOKEN_MINUTES", "30"))
     # Base URL of the web app, used to build password-reset links.
-    PUBLIC_URL = os.getenv("SMARTLAB_PUBLIC_URL", "http://localhost:5173").rstrip("/")
+    PUBLIC_URL = os.getenv("SMARTLAB_PUBLIC_URL", "https://smart-lab-ai.onrender.com").rstrip("/")
     # Outgoing mail for password resets. Without SMTP_HOST the reset link is written to the server log.
     SMTP_HOST = os.getenv("SMARTLAB_SMTP_HOST", "").strip() or None
     SMTP_PORT = int(os.getenv("SMARTLAB_SMTP_PORT", "587"))

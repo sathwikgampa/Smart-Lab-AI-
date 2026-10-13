@@ -1,10 +1,17 @@
 # SmartLab AI
 
-**Multimodal Laboratory Knowledge & Operations Assistant** for pharma and biotech labs.
+[![Live Demo](https://img.shields.io/badge/Live%20Demo-smart--lab--ai.onrender.com-46E3B7?style=for-the-badge&logo=render&logoColor=white)](https://smart-lab-ai.onrender.com)
+[![Python](https://img.shields.io/badge/Python-3.11%2B-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://python.org)
+[![React](https://img.shields.io/badge/React-18-61DAFB?style=for-the-badge&logo=react&logoColor=black)](https://react.dev)
+[![Supabase PostgreSQL](https://img.shields.io/badge/Database-Supabase%20PostgreSQL-3ECF8E?style=for-the-badge&logo=supabase&logoColor=white)](https://supabase.com)
 
-SmartLab AI answers questions from your SOPs and manuals with page-level citations. It analyses photos of equipment displays and samples, and links them to the matching SOP pages. It also runs the day-to-day lab workspace: reagent inventory, troubleshooting, experiment planning with expert review, datasets, collaboration, literature search and protocol simulation.
+> 🚀 **Live Production Deployment**: [https://smart-lab-ai.onrender.com](https://smart-lab-ai.onrender.com)
 
-It runs **fully offline** out of the box. Set `ANTHROPIC_API_KEY` to upgrade answer synthesis, image description and literature summaries to Claude (`claude-opus-5-5`).
+**Multimodal Laboratory Knowledge & Operations Assistant** for pharma, biotech, and academic research laboratories.
+
+SmartLab AI answers complex wet-lab questions from your Standard Operating Procedures (SOPs) and manuals with page-level citations. It analyses photos of equipment displays and samples, links them to verified-fix SOP pages, runs deterministic preparation and molarity math with chemical compatibility guards, and powers day-to-day lab workflows: reagent inventory, troubleshooting, experiment planning with expert review, scientific datasets, team collaboration, and protocol simulation.
+
+It runs **fully offline** out of the box with deterministic fallbacks. Set `ANTHROPIC_API_KEY` to upgrade answer synthesis, image description, and literature summaries to Claude (`claude-opus-5-5`).
 
 ---
 

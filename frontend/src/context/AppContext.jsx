@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, CheckCircle2, Info, X, XCircle } from "lucide-react";
-import { api } from "../lib/api";
+import { api, UNREACHABLE } from "../lib/api";
 import { Dialog } from "../components/ui";
 
 const AppContext = createContext(null);
@@ -53,10 +53,16 @@ export function AppProvider({ children }) {
   // Keep the connection indicator current: any failed request marks the server unreachable,
   // and the health check is repeated (faster while down, paused while the tab is hidden).
   useEffect(() => {
-    const onConn = (e) => { if (!e.detail.reachable) setHealthError((h) => h ?? new Error("unreachable")); };
+    let lastToast = 0;
+    const onConn = (e) => {
+      if (e.detail.reachable) return;
+      setHealthError((h) => h ?? new Error("unreachable"));
+      // One toast per burst of failed requests (send, upload, search...), never stacked.
+      if (Date.now() - lastToast > 6000) { lastToast = Date.now(); toast(UNREACHABLE, "error"); }
+    };
     window.addEventListener("smartlab:connection", onConn);
     return () => window.removeEventListener("smartlab:connection", onConn);
-  }, []);
+  }, [toast]);
   useEffect(() => {
     const t = setInterval(() => { if (!document.hidden) refreshHealth(); }, healthError ? 10000 : 60000);
     const onVisible = () => { if (!document.hidden) refreshHealth(); };

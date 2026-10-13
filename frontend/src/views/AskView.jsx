@@ -3,7 +3,7 @@ import {
   AlertTriangle, ChevronRight, FileText, History, MessageSquareText, Trash2, X,
 } from "lucide-react";
 import { useApp } from "../context/AppContext";
-import { api, UNREACHABLE } from "../lib/api";
+import { api } from "../lib/api";
 import { formatDateTime, timeAgo } from "../lib/format";
 import { takePendingQuestion } from "../lib/pending";
 import { navigate } from "../lib/router";
@@ -186,7 +186,6 @@ export default function AskView({ route }) {
       const res = await api.chat(question, sid, targetScope ? [targetScope.id] : undefined);
       push({ role: "answer", ...res });
     } catch (err) {
-      if (err.status === 0) toast(UNREACHABLE, "error");
       push({ role: "error", error: err.message, retry: { question, att, docScope: targetScope } });
     } finally {
       setBusy(false);

@@ -41,7 +41,9 @@ def list_documents():
     sort = request.args.get("sort", "updated_at")
     sort = sort if sort in SORTABLE else "updated_at"
     order = "ASC" if request.args.get("order") == "asc" else "DESC"
-    return jsonify(query_all(f"{sql} ORDER BY {sort} COLLATE NOCASE {order}, id DESC", params))
+    # Case-insensitive text sort on both SQLite and PostgreSQL (COLLATE NOCASE is SQLite-only).
+    sort_expr = sort if sort == "page_count" else f"LOWER({sort})"
+    return jsonify(query_all(f"{sql} ORDER BY {sort_expr} {order}, id DESC", params))
 
 
 @bp.get("/facets")

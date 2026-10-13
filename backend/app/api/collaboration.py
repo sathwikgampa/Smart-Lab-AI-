@@ -133,7 +133,7 @@ def activity():
                'experiment:' || r.experiment_id
           FROM reviews r LEFT JOIN profiles p ON p.id = r.reviewer_id WHERE COALESCE(r.decided_at, r.created_at) > ?
         UNION ALL
-        SELECT 'audit', a.id, a.created_at, a.actor, a.summary, a.entity_type || ':' || COALESCE(a.entity_id, '')
+        SELECT 'audit', a.id, a.created_at, a.actor, a.summary, a.entity_type || ':' || COALESCE(CAST(a.entity_id AS TEXT), '')
           FROM audit_log a WHERE a.created_at > ?
         ORDER BY at DESC LIMIT ?
         """, (since, since, since, since, since, limit))

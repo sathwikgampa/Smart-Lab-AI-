@@ -8,7 +8,7 @@ from flask_cors import CORS
 from werkzeug.exceptions import HTTPException
 
 from .config import Config
-from .db import close_db, connect, init_schema
+from .db import PgPool, close_db, connect, database_target, describe_database, init_schema
 from .rag.embeddings import get_embedder
 from .rag.engine import RAGEngine
 from .rag.vector_store import get_vector_store
@@ -40,7 +40,8 @@ def create_app(config_object: type[Config] | Config = Config, **overrides) -> Fl
     )
     app.extensions["smartlab"] = {"rag": rag, "llm": llm}
 
-    conn = connect(app.config["DATABASE_PATH"])
+    app.logger.info("Database: %s", describe_database(app.config))
+    conn = connect(database_target(app.config))
     try:
         init_schema(conn)
         rag.ensure_index(conn)
@@ -52,6 +53,8 @@ def create_app(config_object: type[Config] | Config = Config, **overrides) -> Fl
     finally:
         conn.close()
 
+    if app.config["DATABASE_ENGINE"] == "postgresql":
+        app.extensions["smartlab_db_pool"] = PgPool(app.config["DATABASE_URL"], app.config["DB_POOL_MAX"])
     app.teardown_appcontext(close_db)
     _register_blueprints(app)
     _register_error_handlers(app)
@@ -61,6 +64,7 @@ def create_app(config_object: type[Config] | Config = Config, **overrides) -> Fl
         return jsonify({
             "status": "ok",
             "version": __version__,
+            "database": app.config["DATABASE_ENGINE"],
             "embeddings": embedder.name,
             "vector_store": store.backend,
             "indexed_chunks": len(store),

@@ -1,14 +1,19 @@
 """Shared pytest fixtures.
 
 Every test gets a fresh, isolated application (temporary SQLite DB, upload and
-index directories) seeded with the demo SOPs and records. The LLM and external
+index directories) seeded with the demo SOPs and records. Setting
+``SMARTLAB_TEST_DATABASE_URL`` to a disposable PostgreSQL database runs the same
+tests against PostgreSQL instead (one temporary schema per test). The LLM and external
 literature API are disabled by ``TestConfig``; tests that exercise the LLM path
 install :class:`FakeLLM` instead, so the suite is offline and deterministic.
 """
 from __future__ import annotations
 
 import io
+import os
 import sys
+import uuid
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Callable
 
@@ -20,20 +25,43 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app import create_app  # noqa: E402
 from app.config import TestConfig  # noqa: E402
-from app.db import connect  # noqa: E402
+from app.db import connect, database_target  # noqa: E402
 from app.services.llm import LLMUnavailable  # noqa: E402
+
+
+# Optional: run the suite against a disposable PostgreSQL database (never a production one).
+# Each test gets its own temporary schema, which is dropped afterwards.
+TEST_PG_URL = os.getenv("SMARTLAB_TEST_DATABASE_URL", "").strip() or None
+
+
+@contextmanager
+def postgres_test_schema():
+    """Create a uniquely named schema in TEST_PG_URL and yield a URL whose search_path points at it."""
+    import psycopg2
+
+    schema = f"smartlab_test_{uuid.uuid4().hex[:12]}"
+    admin = psycopg2.connect(TEST_PG_URL)
+    admin.autocommit = True
+    admin.cursor().execute(f"CREATE SCHEMA {schema}")
+    sep = "&" if "?" in TEST_PG_URL else "?"
+    try:
+        yield f"{TEST_PG_URL}{sep}options=-csearch_path%3D{schema}"
+    finally:
+        admin.cursor().execute(f"DROP SCHEMA IF EXISTS {schema} CASCADE")
+        admin.close()
 
 
 @pytest.fixture()
 def app(tmp_path):
-    application = create_app(
-        TestConfig,
-        DATA_DIR=tmp_path,
-        DATABASE_PATH=tmp_path / "test.db",
-        UPLOAD_DIR=tmp_path / "uploads",
-        INDEX_DIR=tmp_path / "index",
-    )
-    yield application
+    overrides = dict(DATA_DIR=tmp_path, DATABASE_PATH=tmp_path / "test.db", UPLOAD_DIR=tmp_path / "uploads",
+                     INDEX_DIR=tmp_path / "index")
+    if TEST_PG_URL is None:
+        yield create_app(TestConfig, **overrides)
+        return
+    with postgres_test_schema() as url:
+        application = create_app(TestConfig, DATABASE_ENGINE="postgresql", DATABASE_URL=url, **overrides)
+        yield application
+        application.extensions["smartlab_db_pool"].close()
 
 
 @pytest.fixture()
@@ -43,7 +71,7 @@ def client(app):
 
 @pytest.fixture()
 def conn(app):
-    c = connect(app.config["DATABASE_PATH"])
+    c = connect(database_target(app.config))
     yield c
     c.close()
 

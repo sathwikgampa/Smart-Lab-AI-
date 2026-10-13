@@ -16,7 +16,7 @@ from pathlib import Path
 import pymupdf as fitz
 from werkzeug.datastructures import FileStorage
 
-from .db import set_setting
+from .db import set_setting, transaction_lock
 from .security import DOCUMENT_EXTENSIONS, validate_upload
 
 logger = logging.getLogger(__name__)
@@ -145,7 +145,9 @@ def _d(days: int) -> str:
 
 
 def seed_documents(conn: sqlite3.Connection, rag_engine, upload_dir: Path, max_bytes: int) -> None:
+    transaction_lock(conn, "seed")  # another server process may be seeding the same PostgreSQL database
     if conn.execute("SELECT COUNT(*) FROM documents").fetchone()[0]:
+        conn.rollback()  # end the read transaction (releases the lock on PostgreSQL)
         return
     for sop in DEMO_SOPS:
         data = build_pdf(sop["title"], sop["pages"])
@@ -158,7 +160,9 @@ def seed_documents(conn: sqlite3.Connection, rag_engine, upload_dir: Path, max_b
 
 
 def seed_records(conn: sqlite3.Connection) -> None:
+    transaction_lock(conn, "seed")  # held until the single commit below on PostgreSQL
     if conn.execute("SELECT COUNT(*) FROM reagents").fetchone()[0]:
+        conn.rollback()
         return
     reagents = [
         ("Ethanol, absolute (200 proof)", "64-17-5", "EtOH-2500", "L23-0412", 3.5, "L", 2, "Flammables cabinet F2", "Room temperature, flammables cabinet", "Flammable liquid (3)", _d(400), "Generic Supplier A"),

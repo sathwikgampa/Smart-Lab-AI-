@@ -1,14 +1,16 @@
+@import "./theme.css";
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 @layer base {
   html, body, #root { height: 100%; }
-  body { @apply bg-canvas font-sans text-sm text-ink antialiased; }
+  body { @apply bg-page font-sans text-sm text-ink antialiased; }
   h1, h2, h3 { @apply text-ink; }
-  ::selection { background: rgb(13 148 136 / 0.2); }
-  :focus-visible { outline: 2px solid #0D9488; outline-offset: 2px; }
-  * { scrollbar-width: thin; scrollbar-color: #cbd5e1 transparent; }
+  ::selection { background: rgb(var(--sl-accent) / 0.18); }
+  :focus-visible { outline: 2px solid rgb(var(--sl-accent)); outline-offset: 2px; }
+  * { scrollbar-width: thin; scrollbar-color: #D4D4DA transparent; }
   @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
   }
@@ -25,10 +27,10 @@
     @apply inline-flex h-9 items-center justify-center gap-2 whitespace-nowrap rounded-lg px-3.5 text-sm font-medium
       transition-colors disabled:cursor-not-allowed disabled:opacity-50;
   }
-  .btn-primary { @apply btn bg-accent-strong text-white hover:bg-accent-deeper; }
+  .btn-primary { @apply btn bg-primary text-white hover:bg-primary-hover; }
   .btn-secondary { @apply btn border border-line bg-surface text-ink hover:bg-subtle; }
   .btn-ghost { @apply btn text-muted hover:bg-subtle hover:text-ink; }
-  .btn-danger { @apply btn bg-critical text-white hover:bg-red-800; }
+  .btn-danger { @apply btn bg-critical text-white hover:bg-critical/90; }
   /* Size modifiers come after the variants so they win over the base padding. */
   .btn-sm { @apply h-8 px-2.5 text-xs; }
   .btn-icon { @apply h-9 w-9 px-0; }
@@ -36,7 +38,7 @@
 
   /* Form controls */
   .input {
-    @apply h-9 w-full rounded-lg border border-line bg-surface px-3 text-sm text-ink placeholder:text-slate-400
+    @apply h-9 w-full rounded-lg border border-line bg-surface px-3 text-sm text-ink placeholder:text-faint
       focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/20 disabled:bg-subtle;
   }
   textarea.input { @apply h-auto py-2; }
@@ -51,7 +53,7 @@
 
   /* Tables */
   .table { @apply w-full border-collapse text-sm; }
-  .table th { @apply border-b border-line bg-canvas px-3 py-2 text-left text-xs font-semibold text-muted; }
+  .table th { @apply border-b border-line bg-surface px-3 py-2.5 text-left text-xs font-medium text-muted; }
   .table td { @apply border-b border-line px-3 py-2.5 align-top; }
   .table tbody tr { @apply transition-colors; }
   .table tbody tr.row-link { @apply cursor-pointer hover:bg-canvas; }
@@ -59,9 +61,9 @@
   /* Quick-action chips */
   .chip {
     @apply inline-flex h-8 items-center gap-1.5 rounded-full border border-line bg-surface px-3 text-xs font-medium
-      text-ink transition-colors hover:border-accent hover:text-accent-strong;
+      text-ink transition-colors hover:bg-subtle;
   }
-  .chip-active { @apply border-accent bg-accent-soft text-accent-strong; }
+  .chip-active { @apply border-accent/40 bg-accent-soft text-accent-strong; }
 }
 
 /* Scientific answer typography: comfortable line length and rhythm. */
@@ -89,3 +91,65 @@
   .table-head { @apply border-b border-line bg-canvas px-3 py-2 text-left text-xs font-semibold text-muted; }
   .table-cell { @apply px-3 py-2 text-sm; }
 }
+
+/* ------------------------------------------------------------------ shell & shared primitives */
+@layer components {
+  /* Popovers, menus, flyouts */
+  .popover { @apply rounded-xl border border-line bg-surface shadow-pop; }
+  .popover-caret {
+    @apply absolute h-3 w-3 rotate-45 border-line bg-surface;
+  }
+  .popover-caret-up { top: -6.5px; border-left-width: 1px; border-top-width: 1px; }
+  .popover-caret-down { bottom: -6.5px; border-right-width: 1px; border-bottom-width: 1px; }
+  .menu-item {
+    @apply flex w-full items-start gap-2.5 rounded-lg px-2.5 py-2 text-left outline-none transition-colors
+      hover:bg-subtle focus-visible:bg-subtle focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-accent
+      disabled:cursor-not-allowed disabled:opacity-50;
+  }
+
+  /* Outlined pill (top-bar dropdowns, outlined buttons) */
+  .pill {
+    @apply inline-flex h-8 items-center gap-1.5 whitespace-nowrap rounded-lg border border-line bg-surface px-2.5 text-[0.8125rem]
+      font-medium text-ink transition-colors hover:bg-subtle disabled:opacity-50;
+  }
+  .pill svg { @apply h-3.5 w-3.5 shrink-0 text-muted; }
+  .btn-dark {
+    @apply inline-flex h-8 items-center gap-1.5 whitespace-nowrap rounded-lg bg-primary px-3 text-[0.8125rem] font-medium text-white
+      transition-colors hover:bg-primary-hover;
+  }
+
+  /* Icon rail */
+  .rail-btn {
+    @apply relative flex h-10 w-10 items-center justify-center rounded-[10px] text-faint transition-colors
+      hover:bg-subtle hover:text-ink;
+  }
+  .rail-btn[aria-current="page"], .rail-btn[data-active="true"] { @apply bg-subtle text-accent; }
+  .rail-bar { @apply absolute -left-2 top-2 h-6 w-[3px] rounded-r-full bg-accent; }
+
+  /* Toggle switch (role="switch") */
+  .switch { @apply relative inline-flex h-5 w-9 shrink-0 items-center rounded-full bg-line transition-colors; }
+  .switch[aria-checked="true"] { @apply bg-accent; }
+  .switch-knob { @apply inline-block h-4 w-4 translate-x-0.5 rounded-full bg-white shadow-panel transition-transform; }
+  .switch[aria-checked="true"] .switch-knob { @apply translate-x-[18px]; }
+
+  /* Underline tabs */
+  .tab-u {
+    @apply relative -mb-px inline-flex h-9 items-center border-b-2 border-transparent px-1 text-sm text-muted transition-colors hover:text-ink;
+  }
+  .tab-u[aria-selected="true"] { @apply border-accent font-medium text-ink; }
+
+  /* Type chips (SOP / Manual / Safety ...) */
+  .type-chip { @apply inline-flex h-6 items-center rounded-md bg-subtle px-2 text-xs font-medium text-ink; }
+}
+
+.gradient-text {
+  background: linear-gradient(90deg, var(--sl-grad-from), var(--sl-grad-to));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+@keyframes sl-pop-in { from { opacity: 0; transform: translateY(-4px) scale(0.98); } to { opacity: 1; transform: none; } }
+@keyframes sl-toast-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+.pop-in { animation: sl-pop-in 140ms ease-out; }
+.toast-in { animation: sl-toast-in 180ms ease-out; }

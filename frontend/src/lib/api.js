@@ -3,7 +3,10 @@
 // is the HTTP status (0 when the server could not be reached).
 
 const BASE = import.meta.env.VITE_API_BASE ?? "";
-const UNREACHABLE = "Cannot reach the SmartLab server. Check that the backend is running and try again.";
+export const UNREACHABLE = "Couldn't reach the server. Please try again.";
+
+// Network-level failures are broadcast so the shell can update its connection indicator.
+const signal = (reachable) => window.dispatchEvent(new CustomEvent("smartlab:connection", { detail: { reachable } }));
 
 function apiError(message, status, data) {
   const error = new Error(message);
@@ -23,11 +26,14 @@ async function request(path, { method = "GET", body, signal } = {}) {
     res = await fetch(`${BASE}${path}`, init);
   } catch (err) {
     if (err.name === "AbortError") throw err;
+    signal(false);
     throw apiError(UNREACHABLE, 0);
   }
   if (res.status === 204) return null;
   const isJson = res.headers.get("content-type")?.includes("application/json");
   const data = isJson ? await res.json() : await res.text();
+  // A gateway/proxy error without the API's JSON body means the backend itself is down.
+  if (!res.ok && !isJson && res.status >= 500) { signal(false); throw apiError(UNREACHABLE, 0); }
   if (!res.ok) throw apiError((isJson && data?.error) || `Request failed (${res.status})`, res.status, data);
   return data;
 }
@@ -47,9 +53,10 @@ function upload(path, fields, { onProgress, signal } = {}) {
       let data = null;
       try { data = JSON.parse(xhr.responseText); } catch { /* non-JSON body */ }
       if (xhr.status >= 200 && xhr.status < 300) resolve(data);
+      else if (xhr.status >= 500 && data === null) { signal(false); reject(apiError(UNREACHABLE, 0)); }
       else reject(apiError(data?.error || `Upload failed (${xhr.status})`, xhr.status, data));
     };
-    xhr.onerror = () => reject(apiError(UNREACHABLE, 0));
+    xhr.onerror = () => { signal(false); reject(apiError(UNREACHABLE, 0)); };
     xhr.onabort = () => reject(Object.assign(new Error("Upload cancelled."), { name: "AbortError" }));
     signal?.addEventListener("abort", () => xhr.abort());
     xhr.send(form);

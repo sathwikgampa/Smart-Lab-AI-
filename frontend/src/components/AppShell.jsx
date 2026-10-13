@@ -1,193 +1,366 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  Activity, BookOpen, Boxes, ChevronsLeft, ChevronsRight, FileText, FlaskConical, FlaskRound,
-  LineChart, Menu, MessageSquareText, Search, Settings, ShieldAlert, SlidersHorizontal, Users, Wrench, X,
+  Activity, AlignLeft, BookOpen, Boxes, ChevronDown, FileText, FlaskConical, FolderPlus, House, Layers, MessageSquareText,
+  Plus, Search, Settings, ShieldAlert, UserPlus, Wrench,
 } from "lucide-react";
 import { useApp } from "../context/AppContext";
+import { api } from "../lib/api";
 import { navigate } from "../lib/router";
+import { Floating, MenuButton, useDismiss, useMenuKeys } from "./Popover";
+import { Dialog, Field } from "./ui";
 
+/* ----------------------------------------------------------------- navigation model */
+export const MAIN_NAV = [
+  { id: "overview", label: "Overview", icon: House },
+  { id: "ask", label: "Ask SmartLab", icon: MessageSquareText },
+  { id: "documents", label: "Documents", icon: FileText },
+  { id: "reagents", label: "Reagents", icon: Boxes },
+  { id: "literature", label: "Scientific literature", icon: BookOpen },
+  { id: "safety", label: "Safety resources", icon: ShieldAlert },
+];
 export const NAV_GROUPS = [
   {
-    label: null,
-    items: [
-      { id: "ask", label: "Ask SmartLab", icon: MessageSquareText },
-      { id: "documents", label: "Documents", icon: FileText },
-      { id: "reagents", label: "Reagents", icon: Boxes },
-      { id: "literature", label: "Scientific literature", icon: BookOpen },
-    ],
+    id: "lab-ops", label: "Lab operations", icon: Wrench,
+    items: [{ id: "troubleshooting", label: "Troubleshooting" }, { id: "experiments", label: "Experiments" }, { id: "data", label: "Data analysis" }],
   },
   {
-    label: "Lab operations",
-    items: [
-      { id: "troubleshooting", label: "Troubleshooting", icon: Wrench },
-      { id: "experiments", label: "Experiments", icon: FlaskConical },
-      { id: "data", label: "Data analysis", icon: LineChart },
-    ],
-  },
-  {
-    label: "Early features",
-    hint: "Working prototypes with limited scope",
-    items: [
-      { id: "collaboration", label: "Collaboration", icon: Users },
-      { id: "simulation", label: "Simulation", icon: SlidersHorizontal },
-    ],
+    id: "early", label: "Early features", hint: "Working prototypes with limited scope", icon: Layers,
+    items: [{ id: "collaboration", label: "Collaboration" }, { id: "simulation", label: "Simulation" }, { id: "training", label: "Equipment training" }],
   },
 ];
 export const FOOTER_NAV = [
-  { id: "safety", label: "Safety resources", icon: ShieldAlert, distinguished: true },
   { id: "activity", label: "Recent activity", icon: Activity },
   { id: "settings", label: "Settings", icon: Settings },
 ];
 export const ALL_NAV = [
+  ...MAIN_NAV,
   ...NAV_GROUPS.flatMap((g) => g.items),
   ...FOOTER_NAV,
-  { id: "search", label: "Search", icon: Search },
-  { id: "overview", label: "Ask SmartLab", icon: MessageSquareText },
+  { id: "search", label: "Search" },
 ];
 
-function NavItem({ item, active, collapsed, onNavigate }) {
-  const Icon = item.icon;
-  const isSafety = item.id === "safety" || item.distinguished;
+const initials = (name = "") => name.split(/\s+/).filter(Boolean).slice(0, 2).map((p) => p[0].toUpperCase()).join("");
 
-  if (isSafety) {
-    return (
-      <a
-        href={`#/${item.id}`}
-        onClick={onNavigate}
-        aria-current={active ? "page" : undefined}
-        title={collapsed ? item.label : undefined}
-        className={`group relative flex h-9 items-center gap-3 rounded-lg px-2.5 text-sm transition-all duration-150 border mb-1.5
-          ${
-            active
-              ? "border-amber-500/70 bg-amber-500/25 font-semibold text-amber-200 shadow-sm shadow-amber-950/60"
-              : "border-amber-500/35 bg-amber-950/30 text-amber-300 hover:border-amber-400/60 hover:bg-amber-900/40 hover:text-amber-100"
-          }`}
-      >
-        {active && (
-          <span
-            className="absolute left-0 top-1.5 h-6 w-0.5 rounded-full bg-amber-400 shadow-[0_0_8px_rgba(251,191,36,0.8)]"
-            aria-hidden="true"
-          />
-        )}
-        <Icon
-          className={`h-4 w-4 shrink-0 transition-transform group-hover:scale-110 ${
-            active ? "text-amber-300" : "text-amber-400 group-hover:text-amber-200"
-          }`}
-          aria-hidden="true"
-        />
-        {!collapsed && (
-          <div className="flex min-w-0 flex-1 items-center justify-between">
-            <span className="truncate font-medium">{item.label}</span>
-            <span className="ml-1 rounded bg-amber-500/20 px-1.5 py-0.5 text-[10px] font-semibold text-amber-300">
-              ALERT
-            </span>
-          </div>
-        )}
-      </a>
-    );
-  }
+/* ------------------------------------------------------------------------ icon rail */
+function RailTooltip({ tip }) {
+  if (!tip) return null;
+  return (
+    <span role="tooltip" id="rail-tooltip" style={{ top: tip.top, left: tip.left }}
+      className="pointer-events-none fixed z-[56] -translate-y-1/2 whitespace-nowrap rounded-md bg-primary px-2 py-1 text-xs font-medium text-white shadow-pop">
+      {tip.label}
+    </span>
+  );
+}
+
+function GroupFlyout({ group, current, open, onOpenChange, showTip, hideTip }) {
+  const btnRef = useRef(null);
+  const listRef = useRef(null);
+  const active = group.items.some((i) => i.id === current);
+  const close = useCallback(({ restoreFocus } = {}) => { onOpenChange(false); if (restoreFocus) btnRef.current?.focus(); }, [onOpenChange]);
+  useDismiss(open, close, [btnRef, listRef]);
+  const onKeyDown = useMenuKeys(open, listRef);
 
   return (
-    <a href={`#/${item.id}`} onClick={onNavigate} aria-current={active ? "page" : undefined} title={collapsed ? item.label : undefined}
-      className={`group relative flex h-9 items-center gap-3 rounded-lg px-2.5 text-sm transition-colors
-        ${active ? "bg-nav-2 font-medium text-white" : "text-nav-text hover:bg-nav-2/70 hover:text-white"}`}>
-      {active && <span className="absolute left-0 top-1.5 h-6 w-0.5 rounded-full bg-accent" aria-hidden="true" />}
-      <Icon className={`h-4 w-4 shrink-0 ${active ? "text-teal-300" : "text-nav-dim group-hover:text-nav-text"}`} aria-hidden="true" />
-      {!collapsed && <span className="truncate">{item.label}</span>}
+    <>
+      <button ref={btnRef} type="button" data-rail-item className="rail-btn" data-active={active}
+        aria-label={group.label} aria-haspopup="menu" aria-expanded={open}
+        onClick={() => { hideTip(); onOpenChange(!open); }}
+        onMouseEnter={(e) => !open && showTip(e.currentTarget, group.label)} onMouseLeave={hideTip}
+        onFocus={(e) => !open && e.currentTarget.matches(":focus-visible") && showTip(e.currentTarget, group.label)} onBlur={hideTip}
+        onKeyDown={(e) => { if (e.key === "ArrowRight") { e.preventDefault(); onOpenChange(true); } }}>
+        {active && <span className="rail-bar" aria-hidden="true" />}
+        <group.icon className="h-[18px] w-[18px]" strokeWidth={1.6} aria-hidden="true" />
+      </button>
+      <Floating anchorRef={btnRef} panelRef={listRef} open={open} placement="right-start" offset={10} className="w-52">
+        <p className="px-3.5 pb-1 pt-3 text-xs font-semibold text-ink">{group.label}</p>
+        {group.hint && <p className="px-3.5 text-2xs text-muted">{group.hint}</p>}
+        <div role="menu" aria-label={group.label} className="p-1.5" onKeyDown={(e) => { if (e.key === "ArrowLeft") close({ restoreFocus: true }); else onKeyDown(e); }}>
+          {group.items.map((item) => (
+            <a key={item.id} href={`#/${item.id}`} role="menuitem" tabIndex={-1} aria-current={current === item.id ? "page" : undefined}
+              onClick={() => close({ restoreFocus: false })}
+              className={`menu-item items-center py-1.5 text-sm ${current === item.id ? "font-medium text-accent-strong" : "text-ink"}`}>
+              {item.label}
+            </a>
+          ))}
+        </div>
+      </Floating>
+    </>
+  );
+}
+
+function Rail({ current }) {
+  const { connected, health, currentUser } = useApp();
+  const [tip, setTip] = useState(null);
+  const [openGroup, setOpenGroup] = useState(null);
+  const navRef = useRef(null);
+
+  const showTip = useCallback((el, label) => {
+    const r = el.getBoundingClientRect();
+    setTip({ label, top: r.top + r.height / 2, left: r.right + 10 });
+  }, []);
+  const hideTip = useCallback(() => setTip(null), []);
+  useEffect(() => { setOpenGroup(null); }, [current]);
+
+  // Up/Down arrows move between rail items.
+  const onKeyDown = (e) => {
+    if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
+    if (!e.target.matches("[data-rail-item]")) return;
+    const items = [...navRef.current.querySelectorAll("[data-rail-item]")];
+    const i = items.indexOf(e.target);
+    if (i < 0) return;
+    e.preventDefault();
+    items[(i + (e.key === "ArrowDown" ? 1 : -1) + items.length) % items.length].focus();
+  };
+
+  const statusLabel = health == null && !connected ? "Checking connection" : connected ? "Connected" : "Server not reachable";
+  const tipProps = (label) => ({
+    onMouseEnter: (e) => showTip(e.currentTarget, label), onMouseLeave: hideTip,
+    onFocus: (e) => e.currentTarget.matches(":focus-visible") && showTip(e.currentTarget, label), onBlur: hideTip,
+  });
+  const railLink = (item) => (
+    <a key={item.id} href={`#/${item.id}`} data-rail-item className="rail-btn" aria-label={item.label}
+      aria-current={current === item.id ? "page" : undefined} {...tipProps(item.label)}>
+      {current === item.id && <span className="rail-bar" aria-hidden="true" />}
+      <item.icon className="h-[18px] w-[18px]" strokeWidth={1.6} aria-hidden="true" />
     </a>
   );
-}
 
-function SidebarContent({ current, collapsed, onNavigate, onToggle, mobile }) {
   return (
-    <div className="flex h-full flex-col bg-nav">
-      <div className={`flex h-14 shrink-0 items-center gap-2.5 border-b border-nav-line ${collapsed ? "justify-center px-2" : "px-4"}`}>
-        <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-accent-strong text-white">
-          <FlaskRound className="h-4 w-4" aria-hidden="true" />
-        </div>
-        {!collapsed && <p className="flex-1 text-sm font-semibold text-white">SmartLab AI</p>}
-        {mobile && <button className="btn-icon btn text-nav-text hover:bg-nav-2" onClick={onNavigate} aria-label="Close navigation"><X className="h-4 w-4" /></button>}
+    <nav ref={navRef} aria-label="Main" onKeyDown={onKeyDown}
+      className="flex w-14 shrink-0 flex-col items-center border-r border-line bg-surface py-3">
+      <div className="relative mb-3 flex h-10 w-10 items-center justify-center">
+        <a href="#/overview" className="flex h-9 w-9 items-center justify-center rounded-[10px] text-accent hover:bg-subtle" aria-label="SmartLab AI home" {...tipProps("SmartLab AI")}>
+          <FlaskConical className="h-[22px] w-[22px]" strokeWidth={1.8} aria-hidden="true" />
+        </a>
+        <span role="img" aria-label={statusLabel} {...tipProps(statusLabel)} tabIndex={0}
+          className={`absolute bottom-0.5 right-0.5 flex h-2.5 w-2.5 items-center justify-center rounded-full ring-2 ring-surface ${
+            connected ? "bg-success" : health == null ? "bg-faint" : "bg-warning"}`}>
+          {/* Shape differs as well as colour: a hollow centre when not connected. */}
+          {!connected && <span className="h-1 w-1 rounded-full bg-surface" aria-hidden="true" />}
+        </span>
       </div>
-      <nav className="min-h-0 flex-1 space-y-5 overflow-y-auto px-2 py-3" aria-label="Main">
-        {NAV_GROUPS.map((group) => (
-          <div key={group.label ?? "main"}>
-            {group.label && !collapsed && (
-              <p className="mb-1 px-2.5 text-2xs font-semibold uppercase tracking-wider text-nav-dim" title={group.hint}>{group.label}</p>
-            )}
-            {group.label && collapsed && <div className="mx-2 mb-2 border-t border-nav-line" />}
-            <div className="space-y-0.5">
-              {group.items.map((item) => <NavItem key={item.id} item={item} active={current === item.id} collapsed={collapsed} onNavigate={onNavigate} />)}
-            </div>
-          </div>
+
+      <div className="flex min-h-0 w-full flex-1 flex-col items-center gap-1 overflow-y-auto overflow-x-hidden px-2 [scrollbar-width:none]">
+        {MAIN_NAV.map(railLink)}
+        {NAV_GROUPS.map((g) => (
+          <GroupFlyout key={g.id} group={g} current={current} open={openGroup === g.id}
+            onOpenChange={(o) => setOpenGroup(o ? g.id : null)} showTip={showTip} hideTip={hideTip} />
         ))}
-      </nav>
-      <div className="space-y-0.5 border-t border-nav-line px-2 py-2">
-        {FOOTER_NAV.map((item) => <NavItem key={item.id} item={item} active={current === item.id} collapsed={collapsed} onNavigate={onNavigate} />)}
-        {!mobile && (
-          <button onClick={onToggle} className="flex h-9 w-full items-center gap-3 rounded-lg px-2.5 text-sm text-nav-dim hover:bg-nav-2/70 hover:text-white"
-            aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}>
-            {collapsed ? <ChevronsRight className="h-4 w-4" /> : <><ChevronsLeft className="h-4 w-4" /><span>Collapse</span></>}
-          </button>
-        )}
+        <div className="my-2 w-6 border-t border-line" role="separator" />
+        {FOOTER_NAV.map(railLink)}
       </div>
-    </div>
+
+      <div className="mt-2 flex h-8 w-8 items-center justify-center rounded-full bg-accent-soft text-[0.6875rem] font-semibold text-accent-strong"
+        role="img" aria-label={`Signed in as ${currentUser.name}`} tabIndex={0} {...tipProps(`${currentUser.name} · ${currentUser.role}`)}>
+        {initials(currentUser.name)}
+      </div>
+      <RailTooltip tip={tip} />
+    </nav>
   );
 }
 
-function GlobalSearch({ className = "" }) {
+/* --------------------------------------------------------------------------- top bar */
+function ScopePill() {
+  const { askScope, setAskScope } = useApp();
+  const [docs, setDocs] = useState([]);
+  useEffect(() => {
+    let alive = true;
+    api.documents({ sort: "title", order: "asc" }).then((d) => alive && setDocs(d)).catch(() => {});
+    return () => { alive = false; };
+  }, []);
+  const items = [
+    { id: "all", label: "All documents", description: "Search the whole library" },
+    ...(docs.length ? [{ id: "div", divider: true }] : []),
+    ...docs.slice(0, 30).map((d) => ({ id: String(d.id), label: d.title, description: [d.doc_type, d.version && `v${d.version}`].filter(Boolean).join(" · ") })),
+  ];
+  return (
+    <MenuButton label="Answer scope" width="w-72" className="max-h-[60vh] overflow-y-auto"
+      items={items} value={askScope ? String(askScope.id) : "all"}
+      onSelect={(id, item) => setAskScope(id === "all" ? null : { id: Number(id), title: item.label })}
+      renderButton={({ ref, props }) => (
+        <button ref={ref} type="button" className="pill max-w-[13rem]" {...props} title="Which documents answers come from">
+          <FileText aria-hidden="true" /><span className="hidden truncate sm:inline">{askScope ? askScope.title : "All documents"}</span>
+          <ChevronDown aria-hidden="true" />
+        </button>
+      )} />
+  );
+}
+
+function ModePill() {
+  const { answerMode, setAnswerMode } = useApp();
+  return (
+    <MenuButton label="Answer style" value={answerMode} onSelect={setAnswerMode}
+      items={[
+        { id: "concise", label: "Concise", description: "Short answers with key steps" },
+        { id: "detailed", label: "Detailed", description: "Fuller explanations" },
+      ]}
+      renderButton={({ ref, props }) => (
+        <button ref={ref} type="button" className="pill" {...props}>
+          <AlignLeft aria-hidden="true" /><span className="hidden sm:inline">{answerMode === "detailed" ? "Detailed" : "Concise"}</span>
+          <ChevronDown aria-hidden="true" />
+        </button>
+      )} />
+  );
+}
+
+function CollectionButton() {
+  const { toast } = useApp();
+  return (
+    <MenuButton label="Collections" header="Collections" width="w-64"
+      items={[
+        { id: "none", label: "No collections yet", description: "Group documents to ask across a set", disabled: true },
+        { id: "div", divider: true },
+        { id: "new", label: "New collection", icon: FolderPlus, description: "Needs server support (coming soon)" },
+      ]}
+      onSelect={(id) => id === "new" && toast("Collections aren't available yet: the server has no collections API. Use the scope selector to answer from one document.", "info")}
+      renderButton={({ ref, props }) => (
+        <button ref={ref} type="button" className="inline-flex h-8 items-center gap-1 rounded-lg px-2 text-[0.8125rem] font-medium text-ink hover:bg-subtle" {...props}>
+          <Plus className="h-3.5 w-3.5" aria-hidden="true" /> Collection <ChevronDown className="h-3.5 w-3.5 text-muted" aria-hidden="true" />
+        </button>
+      )} />
+  );
+}
+
+function Breadcrumb({ children }) {
+  return (
+    <nav aria-label="Breadcrumb" className="flex min-w-0 items-center gap-1.5 text-[0.8125rem]">
+      <a href="#/overview" className="shrink-0 text-muted hover:text-ink">SmartLab AI</a>
+      <span className="text-faint" aria-hidden="true">/</span>
+      <span className="truncate font-medium text-ink" aria-current="page">{children}</span>
+    </nav>
+  );
+}
+
+/** Command-palette style global search (documents, reagents, error codes) plus page jump. */
+function SearchPalette({ open, onClose }) {
   const [q, setQ] = useState("");
+  const [sel, setSel] = useState(0);
+  useEffect(() => { if (open) { setQ(""); setSel(0); } }, [open]);
+  const pages = useMemo(() => {
+    const t = q.trim().toLowerCase();
+    return ALL_NAV.filter((n) => n.id !== "search" && (!t || n.label.toLowerCase().includes(t))).slice(0, 6);
+  }, [q]);
+  const options = [
+    ...(q.trim() ? [{ key: "search", label: `Search documents, reagents and error codes for "${q.trim()}"`, go: () => navigate(`search?q=${encodeURIComponent(q.trim())}`), icon: Search }] : []),
+    ...pages.map((p) => ({ key: p.id, label: `Go to ${p.label}`, go: () => navigate(p.id), icon: p.icon ?? FileText })),
+  ];
+  const choose = (o) => { if (!o) return; onClose(); o.go(); };
   return (
-    <form role="search" className={`relative ${className}`} onSubmit={(e) => { e.preventDefault(); if (q.trim()) navigate(`search?q=${encodeURIComponent(q.trim())}`); }}>
-      <Search className="pointer-events-none absolute left-2.5 top-2.5 h-4 w-4 text-muted" aria-hidden="true" />
-      <input className="input pl-8" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search documents, reagents and fixes"
-        placeholder="Search documents, reagents, error codes" />
-    </form>
+    <Dialog open={open} onClose={onClose} title="Search" size="max-w-xl">
+      <div className="-mt-1">
+        <div className="relative">
+          <Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-faint" aria-hidden="true" />
+          <input className="input h-10 pl-9" value={q} autoFocus role="combobox" aria-expanded="true" aria-controls="palette-list"
+            aria-activedescendant={options[sel] ? `palette-${options[sel].key}` : undefined}
+            placeholder="Search documents, reagents, error codes" aria-label="Search documents, reagents and error codes"
+            onChange={(e) => { setQ(e.target.value); setSel(0); }}
+            onKeyDown={(e) => {
+              if (e.key === "ArrowDown") { e.preventDefault(); setSel((s) => Math.min(s + 1, options.length - 1)); }
+              if (e.key === "ArrowUp") { e.preventDefault(); setSel((s) => Math.max(s - 1, 0)); }
+              if (e.key === "Enter") { e.preventDefault(); choose(options[sel]); }
+            }} />
+        </div>
+        <ul id="palette-list" role="listbox" aria-label="Results" className="mt-3 space-y-0.5">
+          {options.map((o, i) => (
+            <li key={o.key} id={`palette-${o.key}`} role="option" aria-selected={i === sel}
+              onMouseEnter={() => setSel(i)} onClick={() => choose(o)}
+              className={`flex cursor-pointer items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm ${i === sel ? "bg-subtle" : ""}`}>
+              <o.icon className="h-4 w-4 shrink-0 text-muted" strokeWidth={1.6} aria-hidden="true" />
+              <span className="truncate">{o.label}</span>
+            </li>
+          ))}
+        </ul>
+        <p className="mt-3 text-2xs text-muted">↑ ↓ to move · Enter to open · Esc to close · Ctrl K to reopen</p>
+      </div>
+    </Dialog>
   );
 }
 
-export default function AppShell({ current, title, children, aside }) {
-  const { healthError } = useApp();
-  const [collapsed, setCollapsed] = useState(() => {
-    try { return localStorage.getItem("smartlab-nav-collapsed") === "1"; } catch { return false; }
-  });
-  const [mobileOpen, setMobileOpen] = useState(false);
+/** UI only: the server has no user accounts, so nothing is sent. */
+function InviteDialog({ open, onClose }) {
+  const { toast } = useApp();
+  const [email, setEmail] = useState("");
+  const [role, setRole] = useState("viewer");
+  useEffect(() => { if (open) { setEmail(""); setRole("viewer"); } }, [open]);
+  return (
+    <Dialog open={open} onClose={onClose} title="Invite to SmartLab" description="Share this workspace with a colleague."
+      footer={<>
+        <button className="btn-secondary" onClick={onClose}>Cancel</button>
+        <button className="btn-primary" form="invite-form" disabled={!/^\S+@\S+\.\S+$/.test(email)}>Send invite</button>
+      </>}>
+      <form id="invite-form" className="grid grid-cols-1 gap-3 sm:grid-cols-[1fr_9rem]"
+        onSubmit={(e) => { e.preventDefault(); onClose(); toast("Invites aren't available yet: the server has no user accounts, so nothing was sent.", "warning"); }}>
+        <Field label="Email address">{(id) => <input id={id} type="email" className="input" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="name@lab.org" required />}</Field>
+        <Field label="Role">
+          {(id) => (
+            <select id={id} className="input" value={role} onChange={(e) => setRole(e.target.value)}>
+              <option value="viewer">Viewer</option><option value="editor">Editor</option>
+            </select>
+          )}
+        </Field>
+      </form>
+      <p className="mt-3 text-xs text-muted">Invitations need user accounts on the server, which this build does not have yet.</p>
+    </Dialog>
+  );
+}
 
-  useEffect(() => { try { localStorage.setItem("smartlab-nav-collapsed", collapsed ? "1" : "0"); } catch { /* ignore */ } }, [collapsed]);
-  useEffect(() => { setMobileOpen(false); }, [current]);
-  useEffect(() => { document.title = title ? `${title} · SmartLab AI` : "SmartLab AI"; }, [title]);
+function TopBar({ current, route, label }) {
+  const { threadTitle } = useApp();
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  const [inviteOpen, setInviteOpen] = useState(false);
+
+  useEffect(() => {
+    const onKey = (e) => { if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") { e.preventDefault(); setPaletteOpen(true); } };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
+  const inThread = current === "ask" && route.path[1];
+  const home = current === "overview" || (current === "ask" && !route.path[1]);
+  let center = null;
+  if (home) center = <CollectionButton />;
+  else if (inThread) center = <Breadcrumb>{threadTitle || "New thread"}</Breadcrumb>;
+  else if (label) center = <Breadcrumb>{label}</Breadcrumb>;
 
   return (
-    <div className="flex h-full overflow-hidden">
-      <a href="#main" className="sr-only focus:not-sr-only focus:fixed focus:left-2 focus:top-2 focus:z-[70] focus:rounded focus:bg-surface focus:px-3 focus:py-2">Skip to content</a>
-      <aside className={`hidden shrink-0 transition-[width] duration-150 lg:block ${collapsed ? "w-16" : "w-60"}`}>
-        <SidebarContent current={current} collapsed={collapsed} onToggle={() => setCollapsed((c) => !c)} />
-      </aside>
-      {mobileOpen && (
-        <div className="fixed inset-0 z-40 bg-nav/50 lg:hidden" onClick={() => setMobileOpen(false)}>
-          <aside className="h-full w-72 max-w-[85vw]" onClick={(e) => e.stopPropagation()}>
-            <SidebarContent current={current} mobile onNavigate={() => setMobileOpen(false)} />
-          </aside>
-        </div>
-      )}
+    <header className="flex h-[52px] shrink-0 items-center gap-2 border-b border-line bg-surface px-3 sm:px-4">
+      <div className="flex shrink-0 items-center gap-1.5">
+        <ScopePill />
+        <ModePill />
+      </div>
+      <div className="hidden min-w-0 flex-1 justify-center px-2 sm:flex">{center}</div>
+      <div className="flex-1 sm:hidden" />
+      <div className="flex shrink-0 items-center gap-1.5">
+        <button type="button" className="pill" onClick={() => setPaletteOpen(true)} aria-label="Search thread and records (Ctrl K)">
+          <Search aria-hidden="true" /><span className="hidden lg:inline">Search thread</span>
+        </button>
+        <button type="button" className="pill" onClick={() => setInviteOpen(true)} aria-label="Invite">
+          <UserPlus aria-hidden="true" /><span className="hidden lg:inline">Invite</span>
+        </button>
+        <button type="button" className="btn-dark" onClick={() => navigate("overview")} aria-label="New thread">
+          <Plus className="h-3.5 w-3.5" aria-hidden="true" /><span className="hidden sm:inline">New thread</span>
+        </button>
+      </div>
+      <SearchPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} />
+      <InviteDialog open={inviteOpen} onClose={() => setInviteOpen(false)} />
+    </header>
+  );
+}
 
-      <div className="flex min-w-0 flex-1 flex-col">
-        <header className="flex h-14 shrink-0 items-center gap-3 border-b border-line bg-surface px-4 sm:px-6">
-          <button className="btn-ghost btn-icon -ml-2 lg:hidden" onClick={() => setMobileOpen(true)} aria-label="Open navigation"><Menu className="h-5 w-5" /></button>
-          <p className="truncate text-sm font-semibold">{title}</p>
-          <div className="flex-1" />
-          {current !== "search" && <GlobalSearch className="hidden w-80 md:block" />}
-          {current !== "search" && (
-            <a href="#/search" className="btn-ghost btn-icon md:hidden" aria-label="Search"><Search className="h-4 w-4" /></a>
-          )}
-        </header>
-        {healthError && (
-          <div role="alert" className="border-b border-critical/30 bg-critical-soft px-4 py-2 text-sm text-critical sm:px-6">
-            The SmartLab server is not responding. Data shown may be incomplete and actions will fail until it is back.
+/* ------------------------------------------------------------------------- the shell */
+export default function AppShell({ current, route, title, children, aside }) {
+  useEffect(() => { document.title = title ? `${title} · SmartLab AI` : "SmartLab AI"; }, [title]);
+  return (
+    <div className="h-full p-0 sm:p-3 lg:p-4">
+      <a href="#main" className="sr-only focus:not-sr-only focus:fixed focus:left-2 focus:top-2 focus:z-[70] focus:rounded focus:bg-surface focus:px-3 focus:py-2">Skip to content</a>
+      <div className="flex h-full overflow-hidden border-line bg-surface shadow-panel sm:rounded-frame sm:border">
+        <Rail current={current} />
+        <div className="flex min-w-0 flex-1 flex-col">
+          <TopBar current={current} route={route} label={title} />
+          <div className="flex min-h-0 flex-1 bg-canvas">
+            <main id="main" className="min-w-0 flex-1 overflow-y-auto">{children}</main>
+            {aside}
           </div>
-        )}
-        <div className="flex min-h-0 flex-1">
-          <main id="main" className="min-w-0 flex-1 overflow-y-auto">{children}</main>
-          {aside}
         </div>
       </div>
     </div>

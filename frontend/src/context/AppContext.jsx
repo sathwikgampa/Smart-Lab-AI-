@@ -6,11 +6,20 @@ import { Dialog } from "../components/ui";
 const AppContext = createContext(null);
 
 const TOAST_ICON = {
-  success: <CheckCircle2 className="h-4 w-4 text-success" aria-hidden="true" />,
-  error: <XCircle className="h-4 w-4 text-critical" aria-hidden="true" />,
-  warning: <AlertTriangle className="h-4 w-4 text-warning" aria-hidden="true" />,
-  info: <Info className="h-4 w-4 text-info" aria-hidden="true" />,
+  success: <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-success" aria-hidden="true" />,
+  error: <XCircle className="mt-0.5 h-4 w-4 shrink-0 text-critical/80" aria-hidden="true" />,
+  warning: <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-warning-ink" aria-hidden="true" />,
+  info: <Info className="mt-0.5 h-4 w-4 shrink-0 text-accent" aria-hidden="true" />,
 };
+
+/** Persisted per-browser preference; storage may be unavailable (private mode). */
+function usePref(key, initial) {
+  const [value, setValue] = useState(() => {
+    try { const raw = localStorage.getItem(key); return raw == null ? initial : JSON.parse(raw); } catch { return initial; }
+  });
+  useEffect(() => { try { localStorage.setItem(key, JSON.stringify(value)); } catch { /* ignore */ } }, [key, value]);
+  return [value, setValue];
+}
 
 /**
  * App-wide state: toasts, a promise-based confirm dialog, server capabilities (health),
@@ -23,18 +32,37 @@ export function AppProvider({ children }) {
   const [evidence, setEvidence] = useState(null); // { citations: [...], active: n }
   const [confirmState, setConfirmState] = useState(null);
   const [currentUser] = useState({ id: 3, name: "Priya Raman", role: "Research Associate" });
+  // Shared between the top bar and the Ask view.
+  const [askScope, setAskScope] = useState(null); // {id, title}: answer from one document only
+  const [threadTitle, setThreadTitle] = useState(null);
+  const [answerMode, setAnswerMode] = usePref("smartlab-answer-mode", "concise"); // UI only: no API parameter yet
+  const [citationsOn, setCitationsOn] = usePref("smartlab-citations", true);
   const toastId = useRef(0);
 
   const toast = useCallback((message, type = "info") => {
     const id = ++toastId.current;
     setToasts((t) => [...t.slice(-3), { id, message, type }]);
-    setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), type === "error" ? 7000 : 4500);
+    setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 5000);
   }, []);
 
   const refreshHealth = useCallback(() => {
     api.health().then((h) => { setHealth(h); setHealthError(null); }).catch(setHealthError);
   }, []);
   useEffect(() => { refreshHealth(); }, [refreshHealth]);
+
+  // Keep the connection indicator current: any failed request marks the server unreachable,
+  // and the health check is repeated (faster while down, paused while the tab is hidden).
+  useEffect(() => {
+    const onConn = (e) => { if (!e.detail.reachable) setHealthError((h) => h ?? new Error("unreachable")); };
+    window.addEventListener("smartlab:connection", onConn);
+    return () => window.removeEventListener("smartlab:connection", onConn);
+  }, []);
+  useEffect(() => {
+    const t = setInterval(() => { if (!document.hidden) refreshHealth(); }, healthError ? 10000 : 60000);
+    const onVisible = () => { if (!document.hidden) refreshHealth(); };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => { clearInterval(t); document.removeEventListener("visibilitychange", onVisible); };
+  }, [healthError, refreshHealth]);
 
   /** Open the evidence panel on one citation, optionally with its sibling citations. */
   const openEvidence = useCallback((citation, siblings) => {
@@ -48,9 +76,12 @@ export function AppProvider({ children }) {
   const confirm = useCallback((opts) => new Promise((resolve) => setConfirmState({ ...opts, resolve })), []);
   const settle = (value) => { confirmState?.resolve(value); setConfirmState(null); };
 
+  const connected = health != null && !healthError;
   const value = useMemo(() => ({
-    toast, confirm, health, healthError, refreshHealth, evidence, openEvidence, closeEvidence, currentUser,
-  }), [toast, confirm, health, healthError, refreshHealth, evidence, openEvidence, closeEvidence, currentUser]);
+    toast, confirm, health, healthError, connected, refreshHealth, evidence, openEvidence, closeEvidence, currentUser,
+    askScope, setAskScope, threadTitle, setThreadTitle, answerMode, setAnswerMode, citationsOn, setCitationsOn,
+  }), [toast, confirm, health, healthError, connected, refreshHealth, evidence, openEvidence, closeEvidence, currentUser,
+    askScope, threadTitle, answerMode, setAnswerMode, citationsOn, setCitationsOn]);
 
   return (
     <AppContext.Provider value={value}>
@@ -64,13 +95,14 @@ export function AppProvider({ children }) {
         </>}>
         <p className="text-sm text-ink">{confirmState?.message}</p>
       </Dialog>
-      <div className="pointer-events-none fixed bottom-4 right-4 z-[60] flex w-[min(22rem,calc(100vw-2rem))] flex-col gap-2" aria-live="polite">
+      <div className="pointer-events-none fixed bottom-5 right-5 z-[60] flex w-[min(22rem,calc(100vw-2rem))] flex-col gap-2" aria-live="polite">
         {toasts.map((t) => (
-          <div key={t.id} className="pointer-events-auto flex items-start gap-2.5 rounded-lg border border-line bg-surface p-3 text-sm shadow-pop">
+          <div key={t.id} role={t.type === "error" ? "alert" : "status"}
+            className="toast-in pointer-events-auto flex items-start gap-2.5 rounded-xl border border-line bg-surface px-3.5 py-3 text-sm shadow-pop">
             {TOAST_ICON[t.type]}
-            <p className="flex-1">{t.message}</p>
-            <button onClick={() => setToasts((all) => all.filter((x) => x.id !== t.id))} aria-label="Dismiss notification">
-              <X className="h-4 w-4 text-muted" />
+            <p className="flex-1 text-ink">{t.message}</p>
+            <button className="-m-1 rounded-md p-1 text-faint hover:bg-subtle hover:text-ink" onClick={() => setToasts((all) => all.filter((x) => x.id !== t.id))} aria-label="Dismiss notification">
+              <X className="h-4 w-4" />
             </button>
           </div>
         ))}

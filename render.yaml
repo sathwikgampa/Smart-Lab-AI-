@@ -1,0 +1,28 @@
+services:
+  - type: web
+    name: smartlab-ai
+    runtime: python
+    plan: free
+    region: oregon
+    buildCommand: "bash render-build.sh"
+    startCommand: "cd backend && gunicorn run:app --bind 0.0.0.0:$PORT --workers 2 --threads 4 --timeout 120"
+    healthCheckPath: /api/health
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.9
+      - key: NODE_VERSION
+        value: 20.12.0
+      - key: SMARTLAB_DATABASE_URL
+        sync: false
+      - key: SMARTLAB_SECRET_KEY
+        generateValue: true
+      - key: SMARTLAB_AUTH_REQUIRED
+        value: "true"
+      - key: SMARTLAB_COOKIE_SECURE
+        value: "true"
+      - key: SMARTLAB_SEED_DEMO
+        value: "true"
+      - key: SMARTLAB_SEED_AGENT_DEMO
+        value: "true"
+      - key: ANTHROPIC_API_KEY
+        sync: false

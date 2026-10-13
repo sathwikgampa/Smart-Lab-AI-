@@ -2,8 +2,10 @@
 from __future__ import annotations
 
 import logging
+import os
+from pathlib import Path
 
-from flask import Flask, jsonify
+from flask import Flask, jsonify, send_from_directory
 from flask_cors import CORS
 from werkzeug.exceptions import HTTPException
 
@@ -79,6 +81,23 @@ def create_app(config_object: type[Config] | Config = Config, **overrides) -> Fl
             "literature_online": app.config["LITERATURE_ONLINE"],
             "max_upload_mb": app.config["MAX_CONTENT_LENGTH"] // (1024 * 1024),
         })
+
+    # Serve built frontend if dist folder exists (e.g. Render / production deployment)
+    dist_dir = Path(__file__).resolve().parent.parent.parent / "frontend" / "dist"
+    if not dist_dir.is_dir():
+        dist_env = os.getenv("FRONTEND_DIST")
+        dist_dir = Path(dist_env) if dist_env else None
+
+    if dist_dir and dist_dir.is_dir():
+        @app.route("/", defaults={"path": ""})
+        @app.route("/<path:path>")
+        def serve_frontend(path: str):
+            if path.startswith("api/"):
+                return jsonify({"error": "Not found"}), 404
+            file_target = dist_dir / path
+            if path and file_target.is_file():
+                return send_from_directory(dist_dir, path)
+            return send_from_directory(dist_dir, "index.html")
 
     return app
 
